@@ -847,12 +847,12 @@ return (
   />
 
   <text
-    x="48"
-    y="55"
+    x="8"
+    y="25"
     fill="white"
-    fontSize="18"
+    fontSize="15"
   >
-    A
+    Amplitude
   </text>
 
 
@@ -912,7 +912,7 @@ return (
 
 
   <text
-    x="350"
+    x="400"
     y="480"
     fill="white"
     fontSize="22"
