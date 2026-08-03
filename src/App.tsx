@@ -6,7 +6,7 @@ type Vec = { x: number; y: number; segments?: { start: number; end: number }[] }
 const SPEED = 280
 const BLOCK_TOP = 100
 const BLOCK_BOTTOM = 450
-const CRACK = { x: 330, y: 260, length: 100, label: 'Horizontal crack' }
+const CRACK = { x: 330, y: 260, length: 100, label: 'Internal crack' }
 const TRACE_WIDTH = 360
 const TRACE_SAMPLE_INTERVAL_MS = 10
 const PROBE_HIT_RADIUS = 45
@@ -966,7 +966,7 @@ return (
 
     <div className="info-panel">
 
-      <h2>GCSE Ultrasound NDT</h2>
+      <h2>Ultrasound Non-destructive Testing</h2>
       <p>
         Click or drag the probe (transducer) to move it along the surface,
         or drag the crack to reposition it within the steel block.
