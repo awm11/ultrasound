@@ -605,9 +605,6 @@ function handleTraceMove(e: React.MouseEvent<SVGSVGElement>) {
 
     ctx.restore()
 
-// cable
-
-// cable
 
 // cable
     ctx.save()
@@ -647,17 +644,22 @@ function handleTraceMove(e: React.MouseEvent<SVGSVGElement>) {
 
     ctx.restore()
 
-//teacher mode
+//probe teacher mode labels
 
       if (teacherRef.current) {
         ctx.fillStyle = 'black'
         ctx.fillText('probe', probeX.current - 18, 58)
+        ctx.fillStyle = 'black'
+        ctx.font = '15px Arial'
+        ctx.fillText('to computer', 610, 165)
+        ctx.fillText('→', 640, 180)
+
       }
       ctx.strokeStyle = 'black'
       ctx.lineWidth = 6
       ctx.beginPath()
 
-// Crack
+
 // Crack
 if (showCrackRef.current) {
 
@@ -1160,7 +1162,7 @@ return (
                 checked={teacher}
                 onChange={(e) => setTeacher(e.target.checked)}
             />
-            Teacher mode
+            Show labels
             </label>
 
         </div>
