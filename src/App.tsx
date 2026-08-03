@@ -441,7 +441,7 @@ function handleTraceMove(e: React.MouseEvent<SVGSVGElement>) {
     }
 
       if (running.current) {
-        const speedScale = (speedRef.current || 0.1) * 2
+        const speedScale = (speedRef.current || 0.1) * 4
         if (pulse.current) {
           pulse.current.y += SPEED * dt * speedScale
           const pulseLeft = pulse.current.x - PULSE_HALF_WIDTH
@@ -658,25 +658,44 @@ function handleTraceMove(e: React.MouseEvent<SVGSVGElement>) {
       ctx.beginPath()
 
 // Crack
-    if (showCrackRef.current){
-        const left = crackRef.current.x - CRACK.length / 2
-        const right = crackRef.current.x + CRACK.length / 2
-        const y = crackRef.current.y
+// Crack
+if (showCrackRef.current) {
 
-        ctx.strokeStyle = '#111'
-        ctx.lineWidth = 4
-        ctx.beginPath()
+  const left = crackRef.current.x - CRACK.length / 2
+  const right = crackRef.current.x + CRACK.length / 2
+  const y = crackRef.current.y
 
-        ctx.moveTo(left, y)
+  ctx.strokeStyle = '#111'
+  ctx.lineWidth = 4
 
-        ctx.lineTo(left + 25, y - 1)
-        ctx.lineTo(left + 50, y + 1)
-        ctx.lineTo(left + 75, y - 1)
-        ctx.lineTo(right, y)
+  ctx.beginPath()
+  ctx.moveTo(left, y)
+  ctx.lineTo(left + 25, y - 1)
+  ctx.lineTo(left + 50, y + 1)
+  ctx.lineTo(left + 75, y - 1)
+  ctx.lineTo(right, y)
+  ctx.stroke()
 
-        ctx.stroke()
-        }
+  // left tip
+  ctx.fillStyle = '#111'
+  ctx.beginPath()
+  ctx.moveTo(left - 4, y)
+  ctx.lineTo(left + 2, y - 2)
+  ctx.lineTo(left + 2, y + 2)
+  ctx.closePath()
+  ctx.fill()
 
+  // right tip
+  ctx.beginPath()
+  ctx.moveTo(right + 4, y)
+  ctx.lineTo(right - 2, y - 2)
+  ctx.lineTo(right - 2, y + 2)
+  ctx.closePath()
+  ctx.fill()
+
+
+
+}
 //Ruler
 if (rulerVisible.current) {
 
@@ -719,7 +738,7 @@ if (rulerVisible.current) {
   ctx.globalAlpha = 0.72
 
   // front face
-  ctx.fillStyle = '#d8b06a'
+  ctx.fillStyle = '#c7943a'
   ctx.strokeStyle = '#7a5528'
   ctx.lineWidth = 2
 
@@ -801,8 +820,8 @@ if (rulerVisible.current) {
   ctx.font = '16px Arial'
   ctx.fillText(
     'cm',
-    r.x - 10,
-    scaleTop + scalePx + 25
+    r.x + 2,
+    scaleTop + scalePx - 400
   )
 
   ctx.restore()
@@ -870,7 +889,7 @@ return (
         <canvas
           ref={canvasRef}
           width={700}
-          height={550}
+          height={500}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -886,17 +905,24 @@ return (
           </div> */}
 
           <div className="button-row">
-
+{/* 
             <button className={`control-btn primary ${playing ? 'active' : ''}`} onClick={play}>
               ▶ Play
             </button>
 
             <button className={`control-btn secondary ${!playing ? 'active' : ''}`} onClick={pause}>
               ⏸ Pause
-            </button>
+            </button> */}
 
-            <button className="control-btn tertiary" onClick={fire}>
-              🔊 Fire pulse
+            <button
+            className="control-btn tertiary"
+            style={{
+                background:'#0284c7',
+                color:'white'
+            }}
+            onClick={fire}
+            >
+            🔊 Fire pulse
             </button>
 
             <button className="control-btn tertiary" onClick={reset}>
@@ -905,6 +931,10 @@ return (
 
             <button
             className="control-btn tertiary"
+            style={{
+                background:'#d4a017',
+                color:'white'
+            }}
             onClick={() => {
                 rulerVisible.current = !rulerVisible.current
                 setShowRuler(rulerVisible.current)
@@ -928,15 +958,15 @@ return (
 
 
       <div className="ascan-panel">
-
-        <h2>A-scan</h2>
+{/* 
+        <h2>A-scan</h2> */}
 
         <div className="ascan-container">
 
 <svg
   width={850}
   height={500}
-  style={{ background: '#111', cursor:'crosshair' }}
+  style={{background: '#111', cursor:'crosshair',border:'3px solid #333', borderRadius:'6px'}}
   onMouseMove={handleTraceMove}
   onMouseLeave={() => {
     setCursorX(null)
@@ -1080,7 +1110,8 @@ return (
       <p>
         Use the ⬅️ and ➡️ arrow keys or click and drag the probe (transducer) to move it along the surface.<br />
         Use the <strong>SPACE BAR</strong> to fire a pulse.<br />
-        Drag the crack to reposition it within the steel block.
+        Drag the crack to reposition it within the steel block.<br />
+        The speed of sound in steel is 5890 m/s.
       </p>
 
       
@@ -1195,7 +1226,6 @@ return (
         }
 
       .ascan-container{
-        margin-top:10px;
       }
 
       .controls{
@@ -1209,6 +1239,8 @@ return (
         display:flex;
         flex-wrap:wrap;
         gap:8px;
+        justify-content:center;
+
       }
 
       .control-btn{
@@ -1272,7 +1304,9 @@ return (
       }
 
       canvas{
-        border:1px solid #999;
+        border:3px solid #777;
+        border-radius:4px;
+        box-shadow:0 2px 6px rgba(0,0,0,0.25);
         display:block;
       }
 
