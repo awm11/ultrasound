@@ -66,6 +66,8 @@ export default function App() {
   const throughEchoAmp = useRef(0.55)
   const draggingRef = useRef<'probe' | 'crack' | null>(null)
   const crackRef = useRef({ x: CRACK.x, y: CRACK.y })
+  const [showCrack, setShowCrack] = useState(true)
+  const showCrackRef = useRef(true)
   const [playing, setPlaying] = useState(false)
   const [teacher, setTeacher] = useState(true)
   const teacherRef = useRef(true)
@@ -81,18 +83,84 @@ export default function App() {
   const rulerVisible = useRef(false)
   const [showRuler, setShowRuler] = useState(false)
   const rulerGrabOffset = useRef({ x: 0, y: 0 })
+  const keyState = useRef({left: false, right: false,})
 
   useEffect(() => {
     teacherRef.current = teacher
   }, [teacher])
 
+  useEffect(() => {
+  showCrackRef.current = showCrack
+}, [showCrack])
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+        if (e.code === 'Space') {
+        e.preventDefault()
+        fire()
+        }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+        window.removeEventListener('keydown', handleKeyDown)
+    }
+
+    }, [])
+
+  useEffect(() => {
+
+    function down(e: KeyboardEvent) {
+        switch (e.code) {
+        case 'ArrowLeft':
+            e.preventDefault()
+            keyState.current.left = true
+            break
+
+        case 'ArrowRight':
+            e.preventDefault()
+            keyState.current.right = true
+            break
+
+        case 'Space':
+            e.preventDefault()
+            fire()
+            break
+        }
+    }
+
+    function up(e: KeyboardEvent) {
+        switch (e.code) {
+        case 'ArrowLeft':
+            keyState.current.left = false
+            break
+
+        case 'ArrowRight':
+            keyState.current.right = false
+            break
+        }
+    }
+
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+
+    return () => {
+        window.removeEventListener('keydown', down)
+        window.removeEventListener('keyup', up)
+    }
+
+    }, [])
+
+
   function clampProbeX(x: number) {
-    return Math.max(100, Math.min(560, x))
+    return Math.max(110, Math.min(570, x))
   }
 
   function clampCrackX(x: number) {
-    return Math.max(80 + CRACK.length / 2, Math.min(700 - CRACK.length / 2 - 80, x))
-  }
+    return Math.max(
+        80 + CRACK.length / 2,
+        Math.min(600 - CRACK.length / 2, x)
+    )
+    }
 
   function clampCrackY(y: number) {
     return Math.max(BLOCK_TOP + 10, Math.min(BLOCK_BOTTOM - 10, y))
@@ -136,6 +204,24 @@ export default function App() {
 
     return x >= crackLeft - CRACK_HIT_RADIUS && x <= crackRight + CRACK_HIT_RADIUS && y >= crackTop && y <= crackBottom
   }
+
+    function randomiseCrack() {
+        const minX = 80 + CRACK.length / 2
+        const maxX = 600 - CRACK.length / 2
+        const safeGap = 80  // increase this to make the middle forbidden area wider
+        const leftMax = (minX + maxX) / 2 - safeGap
+        const rightMin = (minX + maxX) / 2 + safeGap
+        const x =
+            Math.random() < 0.5
+            ? minX + Math.random() * (leftMax - minX)
+            : rightMin + Math.random() * (maxX - rightMin)
+        crackRef.current = {
+            x,
+            y: clampCrackY(
+            BLOCK_TOP + 40 + Math.random() * 270
+            ),
+        }
+    }
 
   function moveCrackTo(clientX: number, clientY: number) {
     const canvas = canvasRef.current
@@ -301,6 +387,7 @@ const r = rulerRef.current
   }
 
   function drawBeamSegments(ctx: CanvasRenderingContext2D, beam: Vec | null, color: string) {
+    if (!showCrackRef.current) return
     if (!beam?.segments) return
 
     ctx.strokeStyle = color
@@ -338,6 +425,20 @@ function handleTraceMove(e: React.MouseEvent<SVGSVGElement>) {
     function animate(now: number) {
       const dt = (now - last) / 1000
       last = now
+
+    const probeSpeed = 240 // pixels per second
+
+    if (keyState.current.left) {
+    probeX.current = clampProbeX(
+        probeX.current - probeSpeed * dt
+    )
+    }
+
+    if (keyState.current.right) {
+    probeX.current = clampProbeX(
+        probeX.current + probeSpeed * dt
+    )
+    }
 
       if (running.current) {
         const speedScale = (speedRef.current || 0.1) * 2
@@ -557,7 +658,7 @@ function handleTraceMove(e: React.MouseEvent<SVGSVGElement>) {
       ctx.beginPath()
 
 // Crack
-
+    if (showCrackRef.current){
         const left = crackRef.current.x - CRACK.length / 2
         const right = crackRef.current.x + CRACK.length / 2
         const y = crackRef.current.y
@@ -574,6 +675,7 @@ function handleTraceMove(e: React.MouseEvent<SVGSVGElement>) {
         ctx.lineTo(right, y)
 
         ctx.stroke()
+        }
 
 //Ruler
 if (rulerVisible.current) {
@@ -709,14 +811,14 @@ if (rulerVisible.current) {
 
     //   ctx.stroke()
 
-      if (teacherRef.current) {
+      if (teacherRef.current && showCrackRef.current) {
         ctx.fillStyle = 'black'
         ctx.fillText(CRACK.label, crackRef.current.x - 35, crackRef.current.y - 15)
       }
 
       if (pulse.current) {
         drawBeamSegments(ctx, pulse.current, '#00a8ff')
-        if (teacherRef.current) {
+        if (teacherRef.current && showCrackRef.current) {
           ctx.fillStyle = 'black'
           ctx.fillText('pulse', pulse.current.x + 10, pulse.current.y - 10)
         }
@@ -724,7 +826,7 @@ if (rulerVisible.current) {
 
       if (returnPulse.current) {
         drawBeamSegments(ctx, returnPulse.current, '#ff8c00')
-        if (teacher) {
+        if (teacherRef.current && showCrackRef.current) {
           ctx.fillStyle = 'black'
           ctx.fillText('echo', returnPulse.current.x + 10, returnPulse.current.y - 10)
         }
@@ -732,7 +834,7 @@ if (rulerVisible.current) {
 
       if (throughPulse.current) {
         drawBeamSegments(ctx, throughPulse.current, '#00a8ff')
-        if (teacherRef.current) {
+        if (teacherRef.current && showCrackRef.current) {
           ctx.fillStyle = 'black'
           ctx.fillText('pulse', throughPulse.current.x + 10, throughPulse.current.y - 10)
         }
@@ -740,7 +842,7 @@ if (rulerVisible.current) {
 
       if (throughReturnPulse.current) {
         drawBeamSegments(ctx, throughReturnPulse.current, '#ff8c00')
-        if (teacherRef.current) {
+        if (teacherRef.current && showCrackRef.current) {
           ctx.fillStyle = 'black'
           ctx.fillText('echo', throughReturnPulse.current.x + 10, throughReturnPulse.current.y - 10)
         }
@@ -809,6 +911,13 @@ return (
             }}
             >
             📏 Ruler
+            </button>
+            
+            <button
+            className="control-btn tertiary"
+            onClick={randomiseCrack}
+            >
+            🎲 Random crack
             </button>
 
           </div>
@@ -966,45 +1075,66 @@ return (
 
     <div className="info-panel">
 
+
       <h2>Ultrasound Non-destructive Testing</h2>
       <p>
-        Click or drag the probe (transducer) to move it along the surface,
-        or drag the crack to reposition it within the steel block.
+        Use the ⬅️ and ➡️ arrow keys or click and drag the probe (transducer) to move it along the surface.<br />
+        Use the <strong>SPACE BAR</strong> to fire a pulse.<br />
+        Drag the crack to reposition it within the steel block.
       </p>
 
-      <label>
-        <input
-          type="checkbox"
-          checked={teacher}
-          style={{margin: '30px' }}
-          onChange={(e) => setTeacher(e.target.checked)}
-        />
-        Teacher mode
-      </label>
-
-
-      <div className="speed-control">
-
-        <label>
-          Animation speed: {speed.toFixed(1)}x
-        </label>
-
-        <input
-          type="range"
-          min="0.1"
-          max="1.0"
-          step="0.1"
-          value={speed}
-          onChange={(e) => {
-            const value = Number(e.target.value)
-            speedRef.current = value
-            setSpeed(value)
-          }}
-        />
-
-      </div>
+      
 
     </div>
+
+
+        <div className="extra-controls">
+
+        <div className="speed-control">
+
+            <label>
+            Animation speed: {speed.toFixed(1)}x
+            </label>
+
+            <input
+            type="range"
+            min="0.1"
+            max="1.0"
+            step="0.1"
+            value={speed}
+            onChange={(e) => {
+                const value = Number(e.target.value)
+                speedRef.current = value
+                setSpeed(value)
+            }}
+            />
+
+        </div>
+
+
+        <div className="checkbox-control">
+
+            <label>
+            <input
+                type="checkbox"
+                checked={showCrack}
+                onChange={(e) => setShowCrack(e.target.checked)}
+            />
+            Reveal defect
+            </label>
+
+            <label>
+            <input
+                type="checkbox"
+                checked={teacher}
+                onChange={(e) => setTeacher(e.target.checked)}
+            />
+            Teacher mode
+            </label>
+
+        </div>
+
+        </div>
 
 
     <style>{`
@@ -1038,10 +1168,31 @@ return (
       }
 
       .info-panel{
-        margin-top:30px;
+        margin-top:0px;
         width:1400px;
         text-align:center;
       }
+
+      .extra-controls{
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:30px;
+        align-items:center;
+        margin-top:12px;
+        }
+
+      .speed-control{
+        display:flex;
+        flex-direction:column;
+        gap:6px;
+        }
+
+      .checkbox-control{
+        display:flex;
+        flex-direction:column;
+        gap:6px;
+        align-items:flex-start;
+        }
 
       .ascan-container{
         margin-top:10px;
