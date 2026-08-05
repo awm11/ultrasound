@@ -88,6 +88,8 @@ export default function App() {
   const challengeRef = useRef(false)
   const [guessX, setGuessX] = useState<number | null>(null)
   const guessXRef = useRef<{ x: number; y: number } | null>(null)
+  const [guessDistance, setGuessDistance] = useState<number | null>(null)
+  const [guessFeedback, setGuessFeedback] = useState('')
 
   useEffect(() => {
     teacherRef.current = teacher
@@ -297,7 +299,7 @@ export default function App() {
 
 
       // Crack dragging (demonstration mode only)
-      if (isNearCrack(event.clientX, event.clientY)) {
+      if (isNearCrack(event.clientX, event.clientY) && !challengeRef.current) {
 
         draggingRef.current = 'crack'
 
@@ -401,6 +403,24 @@ export default function App() {
     function revealAnswer() {
     // challengeRef.current = false
     if (guessXRef.current === null) return
+
+    const dx = guessXRef.current.x - crackRef.current.x
+    const dy = guessXRef.current.y - crackRef.current.y
+
+    const distance = Math.sqrt(dx * dx + dy * dy)
+
+    setGuessDistance(distance)
+
+    if (distance < 15) {
+      setGuessFeedback("✓ Good job! Closer than a bat's whisker.")
+    } 
+    else if (distance < 50) {
+      setGuessFeedback("🔎 Not bad! We'll make an inspector of you yet.")
+    } 
+    else {
+      setGuessFeedback("Hmmm...you might want to recheck your calculations?")
+    }
+
     setShowCrack(true)
     }
 
@@ -440,6 +460,9 @@ export default function App() {
     rulerDragging.current = false
     speedRef.current = 0.5
     setSpeed(0.5)
+    setGuessX(null)
+    guessXRef.current = null
+    setGuessDistance(null)
   }
 
   function drawBeamSegments(ctx: CanvasRenderingContext2D, beam: Vec | null, color: string) {
@@ -1214,14 +1237,29 @@ return (
 
     </div>
 
+{guessDistance !== null && guessXRef.current && (
+      <div className="feedback-panel">
+
+        <div>
+          <strong>Distance from defect centre:</strong> {(guessDistance/14).toFixed(1)} cm
+        </div>
+
+        <div>
+          {guessFeedback}
+        </div>
+
+      </div>
+    )}
 
     <div className={`info-panel ${challengeRef.current ? 'challenge-info' : ''}`}>
+
+    
 
     {challengeRef.current ? (
       <>
         <h2>Hidden Defect Challenge</h2>
         <p>
-          Use the probe to locate the hidden crack.<br />
+          Use the probe to locate the hidden defect.<br />
           Click on the steel to mark the defect location, then click "Reveal answer" to see how close you were.<br />
           The speed of sound in steel is 5890 m/s.
         </p>
@@ -1354,6 +1392,15 @@ return (
           border: 1px solid white;
           border-radius: 10px;
           box-shadow:0 0 20px rgba(239,68,68,.45);
+      }
+
+      .feedback-panel{
+        margin-top:15px;
+        padding:10px 20px;
+        border-radius:8px;
+        background: #f8fafc;
+        border:1px solid #cbd5e1;
+        font-weight:600;
       }
 
       .extra-controls{
