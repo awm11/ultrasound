@@ -84,6 +84,10 @@ export default function App() {
   const [showRuler, setShowRuler] = useState(false)
   const rulerGrabOffset = useRef({ x: 0, y: 0 })
   const keyState = useRef({left: false, right: false,})
+  const [challengeMode, setChallengeMode] = useState(false)
+  const challengeRef = useRef(false)
+  const [guessX, setGuessX] = useState<number | null>(null)
+  const guessXRef = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
     teacherRef.current = teacher
@@ -223,67 +227,142 @@ export default function App() {
         }
     }
 
-  function moveCrackTo(clientX: number, clientY: number) {
-    const canvas = canvasRef.current
-    if (!canvas) return
+    function moveCrackTo(clientX: number, clientY: number) {
+      const canvas = canvasRef.current
+      if (!canvas) return
 
-    const rect = canvas.getBoundingClientRect()
-    crackRef.current = {
-      x: clampCrackX(clientX - rect.left),
-      y: clampCrackY(clientY - rect.top),
+      const rect = canvas.getBoundingClientRect()
+      crackRef.current = {
+        x: clampCrackX(clientX - rect.left),
+        y: clampCrackY(clientY - rect.top),
+      }
     }
-  }
 
-  function handlePointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
-    event.preventDefault()
+    function handlePointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
+      event.preventDefault()
 
-    if (showRuler) {
+      const canvas = canvasRef.current
+      if (!canvas) return
 
-    const canvas = canvasRef.current
-    if (canvas) {
+      const rect = canvas.getBoundingClientRect()
 
-        const rect = canvas.getBoundingClientRect()
+      const x = (event.clientX - rect.left) * (canvas.width / rect.width)
+      const y = (event.clientY - rect.top) * (canvas.height / rect.height)
 
-        const x = event.clientX - rect.left
-        const y = event.clientY - rect.top
 
-const r = rulerRef.current
+      // Ruler (available in all modes)
+      if (showRuler) {
+
+        const r = rulerRef.current
 
         if (
-        x >= r.x - 40 &&
-        x <= r.x + 40 &&
-        y >= r.y &&
-        y <= r.y + 290 + r.length
+          x >= r.x - 40 &&
+          x <= r.x + 40 &&
+          y >= r.y &&
+          y <= r.y + 290 + r.length
         ) {
-        rulerDragging.current = true
+          rulerDragging.current = true
 
-        rulerGrabOffset.current = {
+          rulerGrabOffset.current = {
             x: x - r.x,
             y: y - r.y
+          }
+
+          event.currentTarget.setPointerCapture(event.pointerId)
+          return
         }
+      }
+
+
+      // Probe (available in all modes)
+      if (isNearProbe(event.clientX, event.clientY)) {
+
+        draggingRef.current = 'probe'
 
         event.currentTarget.setPointerCapture(event.pointerId)
+
+        moveProbeTo(event.clientX)
+
         return
-        }
-    }
+      }
+
+
+      // Challenge guess
+      if (challengeRef.current) {
+
+        setGuessX(x)
+        guessXRef.current = {x, y}
+
+        return
+      }
+
+
+      // Crack dragging (demonstration mode only)
+      if (isNearCrack(event.clientX, event.clientY)) {
+
+        draggingRef.current = 'crack'
+
+        event.currentTarget.setPointerCapture(event.pointerId)
+
+        moveCrackTo(event.clientX, event.clientY)
+
+        return
+      }
+
+
+      draggingRef.current = null
     }
 
-    if (isNearProbe(event.clientX, event.clientY)) {
-      draggingRef.current = 'probe'
-      event.currentTarget.setPointerCapture(event.pointerId)
-      moveProbeTo(event.clientX)
-      return
-    }
+  // function handlePointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
+  //   event.preventDefault()
 
-    if (isNearCrack(event.clientX, event.clientY)) {
-      draggingRef.current = 'crack'
-      event.currentTarget.setPointerCapture(event.pointerId)
-      moveCrackTo(event.clientX, event.clientY)
-      return
-    }
+  //   if (showRuler) {
 
-    draggingRef.current = null
-  }
+  //   const canvas = canvasRef.current
+  //   if (canvas) {
+
+  //       const rect = canvas.getBoundingClientRect()
+
+  //       const x = event.clientX - rect.left
+  //       const y = event.clientY - rect.top
+
+  //       const r = rulerRef.current
+
+  //       if (
+  //       x >= r.x - 40 &&
+  //       x <= r.x + 40 &&
+  //       y >= r.y &&
+  //       y <= r.y + 290 + r.length
+  //       ) {
+  //       rulerDragging.current = true
+
+  //       rulerGrabOffset.current = {
+  //           x: x - r.x,
+  //           y: y - r.y
+  //       }
+
+  //       event.currentTarget.setPointerCapture(event.pointerId)
+  //       return
+  //       }
+  //   }
+  //   }
+
+  //   if (isNearProbe(event.clientX, event.clientY)) {
+  //     draggingRef.current = 'probe'
+  //     event.currentTarget.setPointerCapture(event.pointerId)
+  //     moveProbeTo(event.clientX)
+  //     return
+  //   }
+
+  //   if (isNearCrack(event.clientX, event.clientY)) {
+  //     draggingRef.current = 'crack'
+  //     event.currentTarget.setPointerCapture(event.pointerId)
+  //     moveCrackTo(event.clientX, event.clientY)
+  //     return
+  //   }
+
+  //   draggingRef.current = null
+  // }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
     
@@ -357,6 +436,25 @@ const r = rulerRef.current
       segments: [{ start: probeX.current - PULSE_HALF_WIDTH, end: probeX.current + PULSE_HALF_WIDTH }],
     }
   }
+    function startChallenge() {
+    challengeRef.current = true
+    setGuessX(null)
+    guessXRef.current = null
+    randomiseCrack()
+    setShowCrack(false)
+    signal.current = []
+    echoQueue.current = []
+    setTrace([])
+    setEchoes([])
+    speedRef.current = 1.0
+    setSpeed(1.0)
+    }
+ 
+    function revealAnswer() {
+    // challengeRef.current = false
+    setShowCrack(true)
+    }
+
 
   function play() {
     running.current = true
@@ -384,6 +482,15 @@ const r = rulerRef.current
     setTrace([])
     setEchoes([])
     setPlaying(false)
+    challengeRef.current = false
+    // revealLineRef.current = null
+    guessXRef.current = null
+    showCrackRef.current = true
+    setShowCrack(true)
+    draggingRef.current = null
+    rulerDragging.current = false
+    speedRef.current = 0.5
+    setSpeed(0.5)
   }
 
   function drawBeamSegments(ctx: CanvasRenderingContext2D, beam: Vec | null, color: string) {
@@ -698,6 +805,26 @@ if (showCrackRef.current) {
 
 
 }
+
+// Student guess marker
+if (guessXRef.current !== null && challengeRef.current) {
+  
+  const {x, y} = guessXRef.current
+
+  ctx.strokeStyle = '#ed0707'
+  ctx.lineWidth = 3
+
+  ctx.beginPath()
+
+  ctx.moveTo(x - 10, y - 10)
+  ctx.lineTo(x + 10, y + 10)
+
+  ctx.moveTo(x + 10, y - 10)
+  ctx.lineTo(x - 10, y + 10)
+
+  ctx.stroke()
+}
+
 //Ruler
 if (rulerVisible.current) {
 
@@ -882,7 +1009,14 @@ if (rulerVisible.current) {
     }, [])
 
 return (
+
   <div className="app">
+
+    <div className={`challenge-banner ${challengeRef.current ? 'active' : ''}`}>
+    {challengeRef.current
+        ? '🎯 CHALLENGE MODE • Locate the hidden defect'
+        : '✓ DEMONSTRATION MODE'}
+    </div>
 
     <div className="top-row">
 
@@ -919,38 +1053,70 @@ return (
             <button
             className="control-btn tertiary"
             style={{
-                background:'#0284c7',
-                color:'white'
-            }}
+  background:'linear-gradient(135deg, #0284c7, #06b6d4)',
+  color:'white',
+  borderRadius:'8px',
+  boxShadow:'0 4px 10px rgba(2,132,199,0.35)'
+
+}}
             onClick={fire}
             >
             🔊 Fire pulse
             </button>
 
-            <button className="control-btn tertiary" onClick={reset}>
-              ↺ Reset
-            </button>
-
             <button
             className="control-btn tertiary"
             style={{
-                background:'#d4a017',
-                color:'white'
+              background:'linear-gradient(135deg, #d7b436, #f6c453)',
+              color:'dark gray',
+              boxShadow:'0 4px 10px rgba(183,121,31,0.4)'
             }}
-            onClick={() => {
-                rulerVisible.current = !rulerVisible.current
-                setShowRuler(rulerVisible.current)
-            }}
-            >
+                onClick={() => {
+                    rulerVisible.current = !rulerVisible.current
+                    setShowRuler(rulerVisible.current)
+                }}>
             📏 Ruler
             </button>
-            
-            <button
-            className="control-btn tertiary"
-            onClick={randomiseCrack}
-            >
-            🎲 Random crack
+
+            <button className="control-btn tertiary"
+            style={{
+              background:'linear-gradient(135deg, #cfd8e4, #f9fafc)',
+              color:'dark gray',
+              boxShadow:'0 4px 10px rgba(71,85,105,0.35)'
+              }}
+              onClick={reset}>
+              ↺ Reset
             </button>
+
+        
+            {!challengeRef.current ? (
+            <button
+            className="control-btn"
+            style={{
+                background:'linear-gradient(90deg,#f59e0b,#ef4444)',
+                color:'white',
+                // border:'1px solid white',
+                borderRadius:'8px',
+                // boxShadow:'0 0 12px rgba(239,68,68,.35)'
+              }}
+            onClick={startChallenge}>
+                🎯 Challenge
+            </button>
+            
+            ) : (
+            <button 
+            className="control-btn"
+            style={{
+              background:'linear-gradient(90deg,#16a34a,#0d9488)',
+              color:'white',
+              // border:'2px solid white',
+              borderRadius:'8px',
+              // boxShadow:'0 0 12px rgba(13,148,136,.35)'
+            }}
+            onClick={revealAnswer}>
+                ✔ Reveal answer
+            </button>
+            )}
 
           </div>
 
@@ -1105,22 +1271,31 @@ return (
     </div>
 
 
-    <div className="info-panel">
+    <div className={`info-panel ${challengeRef.current ? 'challenge-info' : ''}`}>
+
+    {challengeRef.current ? (
+      <>
+        <h2>Hidden Defect Challenge</h2>
+        <p>
+          Move the probe and use the trace to locate the hidden crack.<br />
+          Click on the steel to mark the defect location, then click "Reveal answer" to see how close you were.<br />
+          The speed of sound in steel is 5890 m/s.
+        </p>
+      </>
+    ) : (
+      <>
+        <h2>Ultrasound Non-destructive Testing</h2>
+        <p>
+          Use the ⬅️ and ➡️ arrow keys or click and drag the probe (transducer) to move it along the surface.<br />
+          Use the <strong>SPACE BAR</strong> to fire a pulse.<br />
+          Drag the crack to reposition it within the steel block.<br />
+          The speed of sound in steel is 5890 m/s.
+        </p>
+      </>
+    )}
 
 
-      <h2>Ultrasound Non-destructive Testing</h2>
-      <p>
-        Use the ⬅️ and ➡️ arrow keys or click and drag the probe (transducer) to move it along the surface.<br />
-        Use the <strong>SPACE BAR</strong> to fire a pulse.<br />
-        Drag the crack to reposition it within the steel block.<br />
-        The speed of sound in steel is 5890 m/s.
-      </p>
-
-      
-
-    </div>
-
-
+    {!challengeRef.current && (
         <div className="extra-controls">
 
         <div className="speed-control">
@@ -1167,11 +1342,32 @@ return (
 
         </div>
 
-        </div>
+        </div>)}
 
 
     <style>{`
 
+        .challenge-banner{
+          width:1400px;
+          margin-top:20px;
+          padding:12px;
+          border-radius:8px;
+          text-align:center;
+          font-size:20px;
+          font-weight:600;
+          letter-spacing:.5px;
+          color: #f3f4f6;
+          background: #555;
+          border:1px solid #d1d5db;
+          transition:all .3s ease;
+        }
+
+        .challenge-banner.active{
+          background:linear-gradient(90deg,#f59e0b,#ef4444);
+          border-color:white;
+          box-shadow:0 0 20px rgba(239,68,68,.45);
+        }
+          
       .app{
         width: 1650px;
         display:flex;
@@ -1182,7 +1378,7 @@ return (
       }
 
       .top-row{
-        margin-top:30px;
+        margin-top:0px;
         display:grid;
         grid-template-columns:700px 700px;
         gap:30px;
@@ -1206,15 +1402,28 @@ return (
         text-align:center;
       }
 
+      .challenge-info{
+        background:linear-gradient(90deg,#f59e0b,#ef4444);
+          color: white;
+          padding: 10px;
+          width: 850px;
+          border: 1px solid white;
+          border-radius: 10px;
+          box-shadow:0 0 20px rgba(239,68,68,.45);
+      }
+
       .extra-controls{
         display:grid;
-        grid-template-columns:1fr 1fr;
+        grid-template-columns:200px 200px;
         gap:30px;
         align-items:center;
+        justify-content:center;
+        justify-items:center;
         margin-top:12px;
         }
 
       .speed-control{
+        width: 200px;
         display:flex;
         flex-direction:column;
         gap:6px;
@@ -1315,6 +1524,5 @@ return (
     `}</style>
 
   </div>
-)
-
-}
+</div>
+)}
