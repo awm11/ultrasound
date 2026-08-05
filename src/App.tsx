@@ -288,8 +288,7 @@ export default function App() {
 
 
       // Challenge guess
-      if (challengeRef.current) {
-
+      if (challengeRef.current && !showCrackRef.current) {
         setGuessX(x)
         guessXRef.current = {x, y}
 
@@ -312,57 +311,6 @@ export default function App() {
 
       draggingRef.current = null
     }
-
-  // function handlePointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
-  //   event.preventDefault()
-
-  //   if (showRuler) {
-
-  //   const canvas = canvasRef.current
-  //   if (canvas) {
-
-  //       const rect = canvas.getBoundingClientRect()
-
-  //       const x = event.clientX - rect.left
-  //       const y = event.clientY - rect.top
-
-  //       const r = rulerRef.current
-
-  //       if (
-  //       x >= r.x - 40 &&
-  //       x <= r.x + 40 &&
-  //       y >= r.y &&
-  //       y <= r.y + 290 + r.length
-  //       ) {
-  //       rulerDragging.current = true
-
-  //       rulerGrabOffset.current = {
-  //           x: x - r.x,
-  //           y: y - r.y
-  //       }
-
-  //       event.currentTarget.setPointerCapture(event.pointerId)
-  //       return
-  //       }
-  //   }
-  //   }
-
-  //   if (isNearProbe(event.clientX, event.clientY)) {
-  //     draggingRef.current = 'probe'
-  //     event.currentTarget.setPointerCapture(event.pointerId)
-  //     moveProbeTo(event.clientX)
-  //     return
-  //   }
-
-  //   if (isNearCrack(event.clientX, event.clientY)) {
-  //     draggingRef.current = 'crack'
-  //     event.currentTarget.setPointerCapture(event.pointerId)
-  //     moveCrackTo(event.clientX, event.clientY)
-  //     return
-  //   }
-
-  //   draggingRef.current = null
-  // }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
     
@@ -452,6 +400,7 @@ export default function App() {
  
     function revealAnswer() {
     // challengeRef.current = false
+    if (guessXRef.current === null) return
     setShowCrack(true)
     }
 
@@ -626,7 +575,7 @@ function handleTraceMove(e: React.MouseEvent<SVGSVGElement>) {
         steelGradient.addColorStop(0, '#f4f4f4')
         steelGradient.addColorStop(0.25, '#d0d4d8')
         steelGradient.addColorStop(0.5, '#eef0f2')
-        steelGradient.addColorStop(0.75, '#c5c9cd')
+        steelGradient.addColorStop(0.75, '#b4b7b8')
         steelGradient.addColorStop(1, '#e5e7e9')
 
         ctx.fillStyle = steelGradient
@@ -657,11 +606,6 @@ function handleTraceMove(e: React.MouseEvent<SVGSVGElement>) {
             )
             }
 
-    //   ctx.fillStyle = '#ddd'
-    //   ctx.strokeStyle = '#333'
-    //   ctx.lineWidth = 3
-    //   ctx.fillRect(80, BLOCK_TOP, 520, BLOCK_BOTTOM - BLOCK_TOP)
-    //   ctx.strokeRect(80, BLOCK_TOP, 520, BLOCK_BOTTOM - BLOCK_TOP)
       ctx.font = '16px Arial'
       
     ctx.save()
@@ -1015,7 +959,7 @@ return (
     <div className={`challenge-banner ${challengeRef.current ? 'active' : ''}`}>
     {challengeRef.current
         ? '🎯 CHALLENGE MODE • Locate the hidden defect'
-        : '✓ DEMONSTRATION MODE'}
+        : '🔎  EXPLORATION MODE'}
     </div>
 
     <div className="top-row">
@@ -1277,7 +1221,7 @@ return (
       <>
         <h2>Hidden Defect Challenge</h2>
         <p>
-          Move the probe and use the trace to locate the hidden crack.<br />
+          Use the probe to locate the hidden crack.<br />
           Click on the steel to mark the defect location, then click "Reveal answer" to see how close you were.<br />
           The speed of sound in steel is 5890 m/s.
         </p>
