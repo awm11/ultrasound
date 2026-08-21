@@ -1395,8 +1395,8 @@ return (
       }
 
       .feedback-panel{
-        margin-top:15px;
-        padding:10px 20px;
+        margin-top:0px;
+        padding:5px 20px;
         border-radius:8px;
         background: #f8fafc;
         border:1px solid #cbd5e1;
