@@ -1457,6 +1457,11 @@ return (
         transform:translateY(-1px);
         }
 
+      .animation-toggle:focus{
+        outline:none;
+        box-shadow:none;
+        }
+
       .animation-toggle.play{
         background:#16a34a;
         }
