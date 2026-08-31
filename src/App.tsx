@@ -1286,18 +1286,29 @@ return (
             Animation speed: {speed.toFixed(1)}x
             </label>
 
-            <input
-            type="range"
-            min="0.1"
-            max="1.0"
-            step="0.1"
-            value={speed}
-            onChange={(e) => {
-                const value = Number(e.target.value)
-                speedRef.current = value
-                setSpeed(value)
-            }}
-            />
+            <div className="speed-slider-row">
+              <input
+              type="range"
+              min="0.1"
+              max="1.0"
+              step="0.1"
+              value={speed}
+              onChange={(e) => {
+                  const value = Number(e.target.value)
+                  speedRef.current = value
+                  setSpeed(value)
+              }}
+              />
+
+              <button
+                type="button"
+                className={`animation-toggle ${playing ? 'pause' : 'play'}`}
+                onClick={playing ? pause : play}
+                aria-label={playing ? 'Pause animation' : 'Play animation'}
+              >
+                {playing ? '⏸ Pause' : '▶ Play'}
+              </button>
+            </div>
 
         </div>
 
@@ -1405,7 +1416,7 @@ return (
 
       .extra-controls{
         display:grid;
-        grid-template-columns:200px 200px;
+        grid-template-columns:320px 200px;
         gap:30px;
         align-items:center;
         justify-content:center;
@@ -1414,10 +1425,44 @@ return (
         }
 
       .speed-control{
-        width: 200px;
+        width: 320px;
         display:flex;
         flex-direction:column;
         gap:6px;
+        }
+
+      .speed-slider-row{
+        display:flex;
+        align-items:center;
+        gap:10px;
+        }
+
+      .speed-slider-row input{
+        flex:1;
+        min-width:0;
+        }
+
+      .animation-toggle{
+        min-width:86px;
+        padding:7px 10px;
+        border:none;
+        border-radius:8px;
+        color:white;
+        cursor:pointer;
+        font-weight:600;
+        transition:background .2s ease, transform .2s ease;
+        }
+
+      .animation-toggle:hover{
+        transform:translateY(-1px);
+        }
+
+      .animation-toggle.play{
+        background:#16a34a;
+        }
+
+      .animation-toggle.pause{
+        background:#f59e0b;
         }
 
       .checkbox-control{
