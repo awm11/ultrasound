@@ -447,7 +447,7 @@ export default function App() {
     echoQueue.current = []
     nextTraceSampleTime.current = 0
     probeX.current = 330
-    crackRef.current = { x: CRACK.x, y: CRACK.y }
+    randomiseCrack()
     setTrace([])
     setEchoes([])
     setPlaying(false)
