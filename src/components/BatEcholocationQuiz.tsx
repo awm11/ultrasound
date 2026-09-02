@@ -1,4 +1,4 @@
-import React, {
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -7,6 +7,10 @@ import React, {
   useState,
 } from "react";
 import "./BatEcholocationQuiz.css";
+import {
+  recogniseNumberWithOnnx,
+  warmOnnxDigitRecognizer,
+} from "./onnxDigitRecognizer";
 
 import bat1 from "../assets/bat_1.jpg";
 import bat2 from "../assets/bat_2.jpg";
@@ -17,9 +21,8 @@ import bat6 from "../assets/bat_6.jpg";
 import bat7 from "../assets/bat_7.jpg";
 import bat8 from "../assets/bat_8.jpg";
 import bat9 from "../assets/bat_9.jpg";
-import bat10 from "../assets/bat_10.jpg";
 
-const BAT_IMAGES = [bat1, bat2, bat3, bat4, bat5, bat6, bat7, bat8, bat9, bat10];
+const BAT_IMAGES = [bat1, bat2, bat3, bat4, bat5, bat6, bat7, bat8, bat9];
 
 const QUESTIONS = [
   {
@@ -108,11 +111,11 @@ function shuffle(items) {
 }
 
 function createRewardPlan() {
-  const pictures = shuffle(BAT_IMAGES).slice(0, 4);
-  const facts = shuffle(BAT_FACTS).slice(0, 4);
+  const pictures = shuffle(BAT_IMAGES).slice(0, QUESTIONS.length);
+  const facts = shuffle(BAT_FACTS).slice(0, QUESTIONS.length);
 
-  return [2, 4, 6, 8].map((afterQuestion, index) => ({
-    afterQuestion,
+  return QUESTIONS.map((_, index) => ({
+    afterQuestion: index + 1,
     image: pictures[index],
     fact: facts[index],
   }));
@@ -133,6 +136,9 @@ function getSession() {
       activeReward: null,
       seenRewards: [],
       drawings: QUESTIONS.map(() => []),
+      answerInkStrokes: QUESTIONS.map(() => []),
+      recognisedAnswers: QUESTIONS.map(() => ""),
+      autoShowBatPictures: true,
     };
   }
 
@@ -150,7 +156,7 @@ function SwapIcon() {
   );
 }
 
-export default function BatEcholocationQuiz({ onFinish }) {
+export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   // Module-level session state survives closing/reopening the component and is cleared by a page refresh.
   const sessionRef = useRef(getSession());
   const session = sessionRef.current;
@@ -163,6 +169,17 @@ export default function BatEcholocationQuiz({ onFinish }) {
   const [feedback, setFeedback] = useState({ type: "", text: "" });
   const [swapped, setSwapped] = useState(session.swapped);
   const [activeReward, setActiveReward] = useState(session.activeReward);
+  const [answerInkMessage, setAnswerInkMessage] = useState("");
+  const [answerEntryMode, setAnswerEntryMode] = useState("write");
+  const [recognisedAnswers, setRecognisedAnswers] = useState(() => [
+    ...session.recognisedAnswers,
+  ]);
+  const [autoShowBatPictures, setAutoShowBatPictures] = useState(
+    session.autoShowBatPictures
+  );
+  const [pictureRevealed, setPictureRevealed] = useState(
+    session.autoShowBatPictures
+  );
 
   const seenRewardsRef = useRef(new Set(session.seenRewards));
   const drawingsRef = useRef(session.drawings);
@@ -175,6 +192,15 @@ export default function BatEcholocationQuiz({ onFinish }) {
   const questionSideRef = useRef(null);
   const workSideRef = useRef(null);
   const swapButtonRef = useRef(null);
+  const answerInputRef = useRef(null);
+  const answerInkSurfaceRef = useRef(null);
+  const answerInkCanvasRef = useRef(null);
+  const answerInkStrokesRef = useRef(session.answerInkStrokes);
+  const answerInkActiveStrokeRef = useRef(null);
+  const answerInkPointerIdRef = useRef(null);
+  const answerInkTimerRef = useRef(null);
+  const nativeHandwritingRecognizerRef = useRef(null);
+  const answerRecognitionRequestRef = useRef(0);
 
   const currentQuestion = QUESTIONS[currentIndex];
   const score = useMemo(() => correct.filter(Boolean).length, [correct]);
@@ -197,12 +223,24 @@ export default function BatEcholocationQuiz({ onFinish }) {
   }, [correct, session]);
 
   useEffect(() => {
+    session.recognisedAnswers = recognisedAnswers;
+  }, [recognisedAnswers, session]);
+
+  useEffect(() => {
     session.swapped = swapped;
   }, [swapped, session]);
 
   useEffect(() => {
     session.activeReward = activeReward;
   }, [activeReward, session]);
+
+  useEffect(() => {
+    onRewardChange?.(activeReward !== null);
+  }, [activeReward, onRewardChange]);
+
+  useEffect(() => {
+    session.autoShowBatPictures = autoShowBatPictures;
+  }, [autoShowBatPictures, session]);
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -338,6 +376,142 @@ export default function BatEcholocationQuiz({ onFinish }) {
     }
   }, [activeReward, currentIndex, resizeCanvas]);
 
+  const redrawAnswerInk = useCallback(() => {
+    const surface = answerInkSurfaceRef.current;
+    const canvas = answerInkCanvasRef.current;
+    if (!surface || !canvas) return;
+
+    const rect = surface.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const width = Math.round(rect.width * dpr);
+    const height = Math.round(rect.height * dpr);
+
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+
+    const ctx = canvas.getContext("2d");
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.strokeStyle = "#111827";
+    ctx.fillStyle = "#111827";
+    ctx.lineWidth = 3.4;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    const strokes = answerInkStrokesRef.current[currentIndexRef.current] || [];
+
+    strokes.forEach((stroke) => {
+      if (!stroke.points.length) return;
+
+      if (stroke.points.length === 1) {
+        const point = stroke.points[0];
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+        return;
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+      for (let i = 1; i < stroke.points.length; i += 1) {
+        ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+      }
+      ctx.stroke();
+    });
+  }, []);
+
+  const clearAnswerInk = useCallback(() => {
+    if (answerInkTimerRef.current) {
+      window.clearTimeout(answerInkTimerRef.current);
+      answerInkTimerRef.current = null;
+    }
+    answerRecognitionRequestRef.current += 1;
+    answerInkStrokesRef.current[currentIndexRef.current] = [];
+    session.answerInkStrokes = answerInkStrokesRef.current;
+    answerInkActiveStrokeRef.current = null;
+    answerInkPointerIdRef.current = null;
+    redrawAnswerInk();
+  }, [redrawAnswerInk, session]);
+
+  useEffect(() => {
+    if (answerInkTimerRef.current) {
+      window.clearTimeout(answerInkTimerRef.current);
+      answerInkTimerRef.current = null;
+    }
+    answerInkActiveStrokeRef.current = null;
+    answerInkPointerIdRef.current = null;
+    setAnswerInkMessage("");
+    setAnswerEntryMode("write");
+    window.requestAnimationFrame(redrawAnswerInk);
+  }, [currentIndex, redrawAnswerInk]);
+
+  useEffect(() => {
+    if (answerEntryMode !== "write") return undefined;
+
+    const surface = answerInkSurfaceRef.current;
+    if (!surface) return undefined;
+
+    window.requestAnimationFrame(redrawAnswerInk);
+
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(redrawAnswerInk);
+    observer.observe(surface);
+    return () => observer.disconnect();
+  }, [answerEntryMode, redrawAnswerInk]);
+
+  useEffect(() => {
+    // Load the local digit model in the background so the first handwritten
+    // answer can be recognised without a noticeable model-startup pause.
+    void warmOnnxDigitRecognizer();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function prepareNativeHandwritingRecognition() {
+      if (!("createHandwritingRecognizer" in navigator)) return;
+      if (typeof window.HandwritingStroke !== "function") return;
+
+      try {
+        const recognizer = await navigator.createHandwritingRecognizer({
+          languages: ["en"],
+        });
+
+        if (cancelled) {
+          recognizer.finish?.();
+          return;
+        }
+
+        nativeHandwritingRecognizerRef.current = recognizer;
+      } catch {
+        // The local ONNX recognizer and Type answer remain available.
+      }
+    }
+
+    prepareNativeHandwritingRecognition();
+
+    return () => {
+      cancelled = true;
+      nativeHandwritingRecognizerRef.current?.finish?.();
+      nativeHandwritingRecognizerRef.current = null;
+    };
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (answerInkTimerRef.current) window.clearTimeout(answerInkTimerRef.current);
+    },
+    []
+  );
+
   const showQuestionFeedback = useCallback(
     (index) => {
       if (!checked[index]) {
@@ -365,45 +539,121 @@ export default function BatEcholocationQuiz({ onFinish }) {
     showQuestionFeedback(currentIndex);
   }, [currentIndex, showQuestionFeedback]);
 
+  const setCurrentAnswerValue = useCallback(
+    (value) => {
+      setAnswers((previous) => {
+        const next = [...previous];
+        next[currentIndex] = value;
+        return next;
+      });
+
+      setChecked((previous) => {
+        const next = [...previous];
+        next[currentIndex] = false;
+        return next;
+      });
+
+      setCorrect((previous) => {
+        const next = [...previous];
+        next[currentIndex] = false;
+        return next;
+      });
+
+      setFeedback({ type: "", text: "" });
+    },
+    [currentIndex]
+  );
+
   const handleAnswerChange = (event) => {
-    const value = event.target.value;
-
-    setAnswers((previous) => {
-      const next = [...previous];
-      next[currentIndex] = value;
-      return next;
-    });
-
-    setChecked((previous) => {
-      const next = [...previous];
-      next[currentIndex] = false;
-      return next;
-    });
-
-    setCorrect((previous) => {
-      const next = [...previous];
-      next[currentIndex] = false;
-      return next;
-    });
-
-    setFeedback({ type: "", text: "" });
+    setCurrentAnswerValue(event.target.value);
   };
 
-  const handleCheckAnswer = (event) => {
+  const handleTypeAnswer = () => {
+    if (answerInkTimerRef.current) {
+      window.clearTimeout(answerInkTimerRef.current);
+      answerInkTimerRef.current = null;
+    }
+    setAnswerEntryMode("type");
+    window.requestAnimationFrame(() => answerInputRef.current?.focus());
+  };
+
+  const handleKeypadPress = (key) => {
+    const current = answers[currentIndex].replace(",", ".");
+
+    if (key === "backspace") {
+      setCurrentAnswerValue(current.slice(0, -1));
+      return;
+    }
+
+    if (key === "clear") {
+      setCurrentAnswerValue("");
+      return;
+    }
+
+    if (key === ".") {
+      if (current.includes(".")) return;
+      setCurrentAnswerValue(current ? `${current}.` : "0.");
+      return;
+    }
+
+    if (!/^\d$/.test(key)) return;
+
+    const digits = current.replace(/\D/g, "");
+    if (digits.length >= 5) return;
+
+    setCurrentAnswerValue(current === "0" ? key : `${current}${key}`);
+  };
+
+  const handleWriteAnswer = () => {
+    answerInputRef.current?.blur();
+    const recognised = recognisedAnswers[currentIndex];
+    if (recognised) setCurrentAnswerValue(recognised);
+    setAnswerEntryMode("write");
+    window.requestAnimationFrame(redrawAnswerInk);
+  };
+
+  const handleClearAnswer = () => {
+    clearAnswerInk();
+    setRecognisedAnswers((previous) => {
+      const next = [...previous];
+      next[currentIndex] = "";
+      return next;
+    });
+    setCurrentAnswerValue("");
+    setAnswerInkMessage("");
+  };
+
+  const handleCheckAnswer = async (event) => {
     event.preventDefault();
 
-    // Keep the field as a normal text box so Windows Ink in Edge can turn
-    // stylus handwriting directly into text. A decimal comma is accepted too.
-    const raw = answers[currentIndex].trim();
+    let raw = answers[currentIndex].trim();
+
+    // In handwriting mode, use the complete visible ink. Recognition never
+    // erases or replaces the learner's writing; it only updates the reading
+    // shown underneath the box.
+    const currentInk = answerInkStrokesRef.current[currentIndex] || [];
+    if (answerEntryMode === "write" && currentInk.length) {
+      const recognisedNow = await recogniseAnswerInk();
+      if (recognisedNow) raw = recognisedNow;
+      else raw = recognisedAnswers[currentIndex].trim();
+    }
+
     const normalized = raw.replace(/\s+/g, "").replace(",", ".");
     const value = Number(normalized);
 
     if (!raw || !Number.isFinite(value) || value < 0) {
-      setFeedback({ type: "wrong", text: "Enter a valid numerical answer first." });
+      setFeedback({
+        type: "wrong",
+        text:
+          answerEntryMode === "write"
+            ? "I couldn't read a valid number yet. Try writing it again, or use Type answer."
+            : "Enter a valid numerical answer first.",
+      });
       return;
     }
 
-    const isCorrect = Math.abs(value - currentQuestion.answer) <= currentQuestion.tolerance;
+    const isCorrect =
+      Math.abs(value - currentQuestion.answer) <= currentQuestion.tolerance;
 
     setChecked((previous) => {
       const next = [...previous];
@@ -442,12 +692,12 @@ export default function BatEcholocationQuiz({ onFinish }) {
     if (!checked[currentIndex]) return;
 
     const completedQuestion = currentIndex + 1;
-    const checkpoint = completedQuestion % 2 === 0;
 
-    if (checkpoint && !seenRewardsRef.current.has(completedQuestion)) {
+    if (!seenRewardsRef.current.has(completedQuestion)) {
       seenRewardsRef.current.add(completedQuestion);
       session.seenRewards = [...seenRewardsRef.current];
-      setActiveReward(completedQuestion / 2 - 1);
+      setPictureRevealed(autoShowBatPictures);
+      setActiveReward(completedQuestion - 1);
       return;
     }
 
@@ -484,6 +734,249 @@ export default function BatEcholocationQuiz({ onFinish }) {
 
   const isEraserEvent = (event) =>
     event.pointerType === "pen" && (event.button === 5 || (event.buttons & 32) === 32);
+
+  const isAnswerWritingPointer = (event) =>
+    event.pointerType === "pen" ||
+    event.pointerType === "touch" ||
+    (event.pointerType === "mouse" && event.button === 0);
+
+  const getAnswerInkPoint = (event, strokeStartTime = performance.now()) => {
+    const surface = answerInkSurfaceRef.current;
+    const rect = surface.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
+      y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
+      t: Math.max(0, performance.now() - strokeStartTime),
+    };
+  };
+
+  const normalizeRecognisedNumber = (value) => {
+    const cleaned = String(value ?? "")
+      .trim()
+      .replace(/\s+/g, "")
+      .replace(/,/g, ".");
+
+    if (/^\d{1,3}(?:\.\d{1,2})?$/.test(cleaned)) return cleaned;
+
+    const match = cleaned.match(/\d{1,3}(?:\.\d{1,2})?/);
+    return match ? match[0] : "";
+  };
+
+  const recogniseWithDeviceHandwriting = async (strokes) => {
+    const recognizer = nativeHandwritingRecognizerRef.current;
+    if (!recognizer || typeof window.HandwritingStroke !== "function") return "";
+
+    const firstPointerType = strokes.find((stroke) => stroke.pointerType)?.pointerType;
+    const inputType =
+      firstPointerType === "pen"
+        ? "stylus"
+        : ["touch", "mouse"].includes(firstPointerType)
+          ? firstPointerType
+          : undefined;
+
+    try {
+      const hints = {
+        recognitionType: "number",
+        alternatives: 4,
+        graphemeSet: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "."],
+      };
+      if (inputType) hints.inputType = inputType;
+
+      const drawing = recognizer.startDrawing(hints);
+
+      strokes.forEach((stroke) => {
+        const nativeStroke = new window.HandwritingStroke();
+        stroke.points.forEach((point) => {
+          nativeStroke.addPoint({ x: point.x, y: point.y, t: point.t });
+        });
+        drawing.addStroke(nativeStroke);
+      });
+
+      const predictions = await drawing.getPrediction();
+      drawing.clear?.();
+
+      for (const prediction of predictions || []) {
+        const candidate = normalizeRecognisedNumber(prediction?.text);
+        if (candidate) return candidate;
+      }
+    } catch {
+      // Return no device result; the local ONNX result remains available.
+    }
+
+    return "";
+  };
+
+  const recogniseAnswerInk = async () => {
+    const surface = answerInkSurfaceRef.current;
+    const index = currentIndexRef.current;
+    const strokes = answerInkStrokesRef.current[index] || [];
+    if (!surface || !strokes.length) return recognisedAnswers[index] || "";
+
+    if (answerInkTimerRef.current) {
+      window.clearTimeout(answerInkTimerRef.current);
+      answerInkTimerRef.current = null;
+    }
+
+    const requestId = ++answerRecognitionRequestRef.current;
+    setAnswerInkMessage("Recognising…");
+
+    // Run the bundled neural-network recogniser locally in the browser. The
+    // handwriting never leaves the device. If its confidence is low, a browser/
+    // device handwriting recogniser can still supply a better reading where one
+    // is available. Type answer remains the guaranteed fallback.
+    const rect = surface.getBoundingClientRect();
+    const onnxResult = await recogniseNumberWithOnnx(
+      strokes,
+      rect.width,
+      rect.height
+    );
+    let text = normalizeRecognisedNumber(onnxResult.text);
+    let confident = Boolean(text && onnxResult.confident);
+
+    if (!confident) {
+      const deviceText = await recogniseWithDeviceHandwriting(strokes);
+      if (deviceText) {
+        text = deviceText;
+        confident = true;
+      }
+    }
+
+    if (requestId !== answerRecognitionRequestRef.current) return "";
+
+    if (text) {
+      setRecognisedAnswers((previous) => {
+        const next = [...previous];
+        next[index] = text;
+        return next;
+      });
+
+      setAnswers((previous) => {
+        const next = [...previous];
+        next[index] = text;
+        return next;
+      });
+
+      setChecked((previous) => {
+        const next = [...previous];
+        next[index] = false;
+        return next;
+      });
+
+      setCorrect((previous) => {
+        const next = [...previous];
+        next[index] = false;
+        return next;
+      });
+
+      setFeedback({ type: "", text: "" });
+      setAnswerInkMessage(confident ? "" : "Check the recognised number before submitting.");
+      return text;
+    }
+
+    setRecognisedAnswers((previous) => {
+      const next = [...previous];
+      next[index] = "";
+      return next;
+    });
+    setAnswers((previous) => {
+      const next = [...previous];
+      next[index] = "";
+      return next;
+    });
+    setAnswerInkMessage("I couldn't read that yet — clear and rewrite, or use Type answer.");
+    return "";
+  };
+
+  const scheduleAnswerInkRecognition = () => {
+    if (answerInkTimerRef.current) window.clearTimeout(answerInkTimerRef.current);
+    answerInkTimerRef.current = window.setTimeout(() => {
+      answerInkTimerRef.current = null;
+      void recogniseAnswerInk();
+    }, 700);
+  };
+
+  const handleAnswerInkPointerDownCapture = (event) => {
+    if (!isAnswerWritingPointer(event)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const surface = answerInkSurfaceRef.current;
+    if (!surface) return;
+
+    if (answerInkTimerRef.current) {
+      window.clearTimeout(answerInkTimerRef.current);
+      answerInkTimerRef.current = null;
+    }
+    answerRecognitionRequestRef.current += 1;
+
+    if (isEraserEvent(event)) {
+      clearAnswerInk();
+      setRecognisedAnswers((previous) => {
+        const next = [...previous];
+        next[currentIndexRef.current] = "";
+        return next;
+      });
+      setCurrentAnswerValue("");
+      setAnswerInkMessage("Answer cleared");
+      return;
+    }
+
+    const index = currentIndexRef.current;
+    const strokes = answerInkStrokesRef.current[index] || [];
+    if (!answerInkStrokesRef.current[index]) answerInkStrokesRef.current[index] = strokes;
+
+    setAnswerInkMessage(strokes.length ? "Updating recognition…" : "Writing…");
+
+    surface.setPointerCapture(event.pointerId);
+    answerInkPointerIdRef.current = event.pointerId;
+
+    const startTime = performance.now();
+    const stroke = {
+      pointerType: event.pointerType,
+      startTime,
+      points: [getAnswerInkPoint(event, startTime)],
+    };
+    answerInkActiveStrokeRef.current = stroke;
+    strokes.push(stroke);
+    session.answerInkStrokes = answerInkStrokesRef.current;
+    redrawAnswerInk();
+  };
+
+  const handleAnswerInkPointerMoveCapture = (event) => {
+    if (
+      answerInkPointerIdRef.current !== event.pointerId ||
+      !answerInkActiveStrokeRef.current
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    answerInkActiveStrokeRef.current.points.push(
+      getAnswerInkPoint(event, answerInkActiveStrokeRef.current.startTime)
+    );
+    redrawAnswerInk();
+  };
+
+  const handleAnswerInkPointerEndCapture = (event) => {
+    if (answerInkPointerIdRef.current !== event.pointerId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const surface = answerInkSurfaceRef.current;
+    answerInkActiveStrokeRef.current = null;
+    answerInkPointerIdRef.current = null;
+
+    if (surface?.hasPointerCapture(event.pointerId)) {
+      surface.releasePointerCapture(event.pointerId);
+    }
+
+    scheduleAnswerInkRecognition();
+  };
 
   const handlePointerDown = (event) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
@@ -522,6 +1015,8 @@ export default function BatEcholocationQuiz({ onFinish }) {
 
   const reward = activeReward === null ? null : rewardPlan[activeReward];
   const isFinalReward = reward?.afterQuestion === QUESTIONS.length;
+  const currentAnswerInk = answerInkStrokesRef.current[currentIndex] || [];
+  const currentRecognisedAnswer = recognisedAnswers[currentIndex] || "";
 
   return (
     <div className="batQuiz">
@@ -565,27 +1060,125 @@ export default function BatEcholocationQuiz({ onFinish }) {
                   <h2 className="batQuiz__questionText">{currentQuestion.text}</h2>
 
                   <form className="batQuiz__answerPanel" onSubmit={handleCheckAnswer}>
-                    <label className="batQuiz__answerLabel" htmlFor="bat-quiz-answer">
-                      Write your answer
-                    </label>
+                    <div className="batQuiz__answerLabel">Your answer</div>
 
                     <div className="batQuiz__answerRow">
-                      <input
-                        id="bat-quiz-answer"
-                        className="batQuiz__answerInput"
-                        type="text"
-                        inputMode="decimal"
-                        enterKeyHint="done"
-                        autoComplete="off"
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                        spellCheck={false}
-                        placeholder="Write or type a number"
-                        aria-label={`Write or type your answer in ${currentQuestion.unit}`}
-                        value={answers[currentIndex]}
-                        onChange={handleAnswerChange}
-                      />
+                      {answerEntryMode === "write" ? (
+                        <div
+                          ref={answerInkSurfaceRef}
+                          className={`batQuiz__writeAnswerBox ${
+                            currentAnswerInk.length ? "is-inking" : ""
+                          }`}
+                          role="textbox"
+                          aria-label={`Write your answer in ${currentQuestion.unit} with a stylus`}
+                          onPointerDownCapture={handleAnswerInkPointerDownCapture}
+                          onPointerMoveCapture={handleAnswerInkPointerMoveCapture}
+                          onPointerUpCapture={handleAnswerInkPointerEndCapture}
+                          onPointerCancelCapture={handleAnswerInkPointerEndCapture}
+                        >
+                          {!currentAnswerInk.length ? (
+                            <div className="batQuiz__writePrompt">Write your answer</div>
+                          ) : null}
+                          <canvas
+                            ref={answerInkCanvasRef}
+                            className="batQuiz__answerInkCanvas"
+                            aria-hidden="true"
+                          />
+                        </div>
+                      ) : (
+                        <input
+                          ref={answerInputRef}
+                          id="bat-quiz-answer"
+                          className="batQuiz__answerInput"
+                          type="text"
+                          inputMode="none"
+                          enterKeyHint="done"
+                          autoComplete="off"
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          placeholder="Type a number"
+                          aria-label={`Type your answer in ${currentQuestion.unit}`}
+                          value={answers[currentIndex]}
+                          onChange={handleAnswerChange}
+                        />
+                      )}
                       <div className="batQuiz__unit">{currentQuestion.unit}</div>
+                    </div>
+
+                    {answerEntryMode === "write" ? (
+                      <div className="batQuiz__recognitionReadout" aria-live="polite">
+                        <span>Recognised:</span>
+                        <strong>{currentRecognisedAnswer || "—"}</strong>
+                        {currentRecognisedAnswer ? <span>{currentQuestion.unit}</span> : null}
+                      </div>
+                    ) : null}
+
+                    {answerEntryMode === "type" ? (
+                      <div className="batQuiz__keypad" aria-label="Number keypad">
+                        {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "backspace"].map(
+                          (key) => (
+                            <button
+                              key={key}
+                              type="button"
+                              className={`batQuiz__keypadKey ${key === "backspace" ? "is-action" : ""}`}
+                              aria-label={key === "backspace" ? "Backspace" : key === "." ? "Decimal point" : key}
+                              onClick={() => handleKeypadPress(key)}
+                            >
+                              {key === "backspace" ? "⌫" : key}
+                            </button>
+                          )
+                        )}
+                      </div>
+                    ) : null}
+
+                    <div className="batQuiz__answerModeRow">
+                      {answerEntryMode === "write" ? (
+                        <>
+                          <button
+                            type="button"
+                            className="batQuiz__answerModeButton"
+                            onClick={handleTypeAnswer}
+                          >
+                            Type answer
+                          </button>
+                          <button
+                            type="button"
+                            className="batQuiz__answerClearButton"
+                            onClick={handleClearAnswer}
+                            disabled={!answers[currentIndex] && !currentAnswerInk.length}
+                          >
+                            Clear
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="batQuiz__answerModeButton"
+                            onClick={handleWriteAnswer}
+                          >
+                            Write answer
+                          </button>
+                          <button
+                            type="button"
+                            className="batQuiz__answerClearButton"
+                            onClick={() => handleKeypadPress("clear")}
+                            disabled={!answers[currentIndex]}
+                          >
+                            Clear
+                          </button>
+                        </>
+                      )}
+                    </div>
+
+                    <div
+                      className={`batQuiz__inkStatus ${
+                        answerInkMessage ? "is-visible" : ""
+                      }`}
+                      aria-live="polite"
+                    >
+                      {answerInkMessage || " "}
                     </div>
 
                     {feedback.text ? (
@@ -605,7 +1198,6 @@ export default function BatEcholocationQuiz({ onFinish }) {
                 </section>
 
                 <section className="batQuiz__workPanel" ref={workSideRef}>
-                  <div className="batQuiz__workTitle">Working out</div>
                   <div className="batQuiz__workpad">
                     <canvas
                       ref={canvasRef}
@@ -658,7 +1250,17 @@ export default function BatEcholocationQuiz({ onFinish }) {
         <section className="batQuiz__rewardPanel">
           <div className="batQuiz__rewardLayout">
             <div className="batQuiz__rewardImageWrap">
-              <img className="batQuiz__rewardImage" src={reward.image} alt="Bat reward" />
+              {pictureRevealed ? (
+                <img className="batQuiz__rewardImage" src={reward.image} alt="Bat reward" />
+              ) : (
+                <button
+                  type="button"
+                  className="batQuiz__showPictureButton"
+                  onClick={() => setPictureRevealed(true)}
+                >
+                  Show bat picture
+                </button>
+              )}
             </div>
 
             <div className="batQuiz__rewardContent">
@@ -679,6 +1281,15 @@ export default function BatEcholocationQuiz({ onFinish }) {
               </div>
 
               <div className="batQuiz__rewardActions">
+                {autoShowBatPictures ? (
+                  <button
+                    type="button"
+                    className="batQuiz__button batQuiz__button--ghost"
+                    onClick={() => setAutoShowBatPictures(false)}
+                  >
+                    No more bat pictures please
+                  </button>
+                ) : null}
                 {!isFinalReward ? (
                   <button
                     type="button"

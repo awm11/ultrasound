@@ -2062,6 +2062,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
   const [phase, setPhase] = useState('Ready')
   const [brainTrace, setBrainTrace] = useState<BatBrainTrace>({ primary: [], secondary: [] })
   const [quizOpen, setQuizOpen] = useState(false)
+  const [quizShowingReward, setQuizShowingReward] = useState(false)
 
   const insectX = mothPosition.x
   const insectY = mothPosition.y
@@ -2097,11 +2098,13 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
 
   function openQuiz() {
     quizOpenRef.current = true
+    setQuizShowingReward(false)
     setQuizOpen(true)
   }
 
   function closeQuiz() {
     quizOpenRef.current = false
+    setQuizShowingReward(false)
     setQuizOpen(false)
   }
 
@@ -2435,7 +2438,9 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
             <line className="bat-graph-axis" x1={BAT_GRAPH_LEFT} y1="75" x2={BAT_GRAPH_LEFT} y2="151" />
             <text className="bat-graph-axis-label" x={BAT_GRAPH_LEFT + 7} y="164">time →</text>
 
-            <text className="bat-call-label" x={BAT_GRAPH_LEFT + 6} y="78">squeak!</text>
+            {brainTrace.primary.some((sample) => Math.abs(sample) > 0.01) && (
+              <text className="bat-call-label" x={BAT_GRAPH_LEFT + 6} y="78">squeak!</text>
+            )}
             {phase === 'Echo detected' && (
               <>
                 <line className="bat-echo-marker" x1={expectedEchoX} y1="76" x2={expectedEchoX} y2="151" />
@@ -2568,7 +2573,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
             if (event.target === event.currentTarget) closeQuiz()
           }}
         >
-          <div className="bat-quiz-modal-panel">
+          <div className={`bat-quiz-modal-panel ${quizShowingReward ? 'is-reward' : ''}`}>
             <button
               className="bat-quiz-close"
               type="button"
@@ -2578,7 +2583,10 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
             >
               ×
             </button>
-            <BatEcholocationQuiz onFinish={closeQuiz} />
+            <BatEcholocationQuiz
+              onFinish={closeQuiz}
+              onRewardChange={setQuizShowingReward}
+            />
           </div>
         </div>
       )}
@@ -2872,7 +2880,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           display:flex;
           align-items:center;
           justify-content:center;
-          padding:18px;
+          padding:8px;
           overflow:auto;
           background:rgba(2,8,18,.84);
           backdrop-filter:blur(7px);
@@ -2880,12 +2888,26 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
 
         .bat-quiz-modal-panel{
           position:relative;
-          width:min(1320px, 100%);
-          max-height:calc(100svh - 36px);
+          width:min(1580px, 100%);
+          height:calc(100svh - 16px);
+          max-height:calc(100svh - 16px);
           overflow:auto;
           border:1px solid #385670;
           border-radius:22px;
           box-shadow:0 28px 80px rgba(0,0,0,.58);
+        }
+
+        .bat-quiz-modal-panel > .batQuiz{
+          min-height:100%;
+        }
+
+        .bat-quiz-modal-panel.is-reward{
+          width:min(1120px, 100%);
+          height:auto;
+        }
+
+        .bat-quiz-modal-panel.is-reward > .batQuiz{
+          min-height:0;
         }
 
         .bat-quiz-close{
