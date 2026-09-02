@@ -2048,6 +2048,7 @@ function BatWaveField({
 
 function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
   const sceneRef = useRef<SVGSVGElement>(null)
+  const quizPanelRef = useRef<HTMLDivElement>(null)
   const mothPositionRef = useRef({ x: 720, y: BAT_SOURCE_Y })
   const draggingMothRef = useRef(false)
   const quizOpenRef = useRef(false)
@@ -2121,6 +2122,14 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
       window.removeEventListener('keydown', closeOnEscape)
     }
   }, [quizOpen])
+
+  useEffect(() => {
+    if (!quizOpen) return
+    const frame = requestAnimationFrame(() => {
+      if (quizPanelRef.current) quizPanelRef.current.scrollTop = 0
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [quizOpen, quizShowingReward])
 
   useEffect(() => {
     const heldKeys = {
@@ -2573,7 +2582,10 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
             if (event.target === event.currentTarget) closeQuiz()
           }}
         >
-          <div className={`bat-quiz-modal-panel ${quizShowingReward ? 'is-reward' : ''}`}>
+          <div
+            ref={quizPanelRef}
+            className={`bat-quiz-modal-panel ${quizShowingReward ? 'is-reward' : ''}`}
+          >
             <button
               className="bat-quiz-close"
               type="button"

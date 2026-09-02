@@ -198,6 +198,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   const answerInkStrokesRef = useRef(session.answerInkStrokes);
   const answerInkActiveStrokeRef = useRef(null);
   const answerInkPointerIdRef = useRef(null);
+  const answerInkErasingRef = useRef(false);
   const answerInkTimerRef = useRef(null);
   const nativeHandwritingRecognizerRef = useRef(null);
   const answerRecognitionRequestRef = useRef(0);
@@ -438,6 +439,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     session.answerInkStrokes = answerInkStrokesRef.current;
     answerInkActiveStrokeRef.current = null;
     answerInkPointerIdRef.current = null;
+    answerInkErasingRef.current = false;
     redrawAnswerInk();
   }, [redrawAnswerInk, session]);
 
@@ -448,6 +450,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     }
     answerInkActiveStrokeRef.current = null;
     answerInkPointerIdRef.current = null;
+    answerInkErasingRef.current = false;
     setAnswerInkMessage("");
     setAnswerEntryMode("write");
     window.requestAnimationFrame(redrawAnswerInk);
@@ -895,6 +898,42 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     }, 700);
   };
 
+  const eraseAnswerInkAt = (point, radius = 18) => {
+    const index = currentIndexRef.current;
+    const strokes = answerInkStrokesRef.current[index] || [];
+    const nextStrokes = [];
+
+    strokes.forEach((stroke) => {
+      let survivingSegment = [];
+
+      const keepSegment = () => {
+        if (!survivingSegment.length) return;
+        nextStrokes.push({
+          ...stroke,
+          points: survivingSegment,
+        });
+        survivingSegment = [];
+      };
+
+      stroke.points.forEach((strokePoint) => {
+        const beneathEraser = Math.hypot(
+          strokePoint.x - point.x,
+          strokePoint.y - point.y
+        ) <= radius;
+
+        if (beneathEraser) keepSegment();
+        else survivingSegment.push(strokePoint);
+      });
+
+      keepSegment();
+    });
+
+    answerInkStrokesRef.current[index] = nextStrokes;
+    session.answerInkStrokes = answerInkStrokesRef.current;
+    redrawAnswerInk();
+    return nextStrokes.length > 0;
+  };
+
   const handleAnswerInkPointerDownCapture = (event) => {
     if (!isAnswerWritingPointer(event)) return;
 
@@ -911,14 +950,19 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     answerRecognitionRequestRef.current += 1;
 
     if (isEraserEvent(event)) {
-      clearAnswerInk();
+      surface.setPointerCapture(event.pointerId);
+      answerInkPointerIdRef.current = event.pointerId;
+      answerInkErasingRef.current = true;
+      answerInkActiveStrokeRef.current = null;
       setRecognisedAnswers((previous) => {
         const next = [...previous];
         next[currentIndexRef.current] = "";
         return next;
       });
       setCurrentAnswerValue("");
-      setAnswerInkMessage("Answer cleared");
+      setAnswerInkMessage("Erasing…");
+      const eraserRadius = Math.max(18, Math.min(30, Math.max(event.width, event.height)));
+      eraseAnswerInkAt(getAnswerInkPoint(event), eraserRadius);
       return;
     }
 
@@ -953,6 +997,13 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
 
     event.preventDefault();
     event.stopPropagation();
+
+    if (answerInkErasingRef.current) {
+      const eraserRadius = Math.max(18, Math.min(30, Math.max(event.width, event.height)));
+      eraseAnswerInkAt(getAnswerInkPoint(event), eraserRadius);
+      return;
+    }
+
     answerInkActiveStrokeRef.current.points.push(
       getAnswerInkPoint(event, answerInkActiveStrokeRef.current.startTime)
     );
@@ -968,14 +1019,26 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     event.stopPropagation();
 
     const surface = answerInkSurfaceRef.current;
+    const wasErasing = answerInkErasingRef.current;
     answerInkActiveStrokeRef.current = null;
     answerInkPointerIdRef.current = null;
+    answerInkErasingRef.current = false;
 
     if (surface?.hasPointerCapture(event.pointerId)) {
       surface.releasePointerCapture(event.pointerId);
     }
 
-    scheduleAnswerInkRecognition();
+    if (wasErasing) {
+      const strokesRemain = (answerInkStrokesRef.current[currentIndexRef.current] || []).length > 0;
+      if (strokesRemain) {
+        setAnswerInkMessage("Updating recognition…");
+        scheduleAnswerInkRecognition();
+      } else {
+        setAnswerInkMessage("Answer cleared");
+      }
+    } else {
+      scheduleAnswerInkRecognition();
+    }
   };
 
   const handlePointerDown = (event) => {
