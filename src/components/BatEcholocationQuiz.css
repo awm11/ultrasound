@@ -199,13 +199,18 @@
 .batQuiz__answerInput {
   min-width: 0;
   flex: 1;
-  padding: 12px 14px;
-  border: 2px solid #566f89;
+  min-height: 68px;
+  padding: 14px 16px;
+  border: 2px solid #6b839c;
   border-radius: 12px;
   background: var(--bat-panel-mid);
   color: #fff;
+  caret-color: #fff;
   font: inherit;
-  font-size: 18px;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  touch-action: auto;
 }
 
 .batQuiz__answerInput::placeholder {
@@ -221,8 +226,13 @@
   border: 2px solid #566f89;
   border-radius: 12px;
   background: var(--bat-panel-mid);
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
+}
+
+.batQuiz__answerInput:focus {
+  border-color: #78dff1;
+  background: #1b2c3e;
 }
 
 .batQuiz__feedback {
@@ -468,4 +478,3 @@
     transition: none;
   }
 }
-

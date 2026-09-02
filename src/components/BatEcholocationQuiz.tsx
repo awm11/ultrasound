@@ -1,4 +1,4 @@
-import {
+import React, {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -392,8 +392,11 @@ export default function BatEcholocationQuiz({ onFinish }) {
   const handleCheckAnswer = (event) => {
     event.preventDefault();
 
+    // Keep the field as a normal text box so Windows Ink in Edge can turn
+    // stylus handwriting directly into text. A decimal comma is accepted too.
     const raw = answers[currentIndex].trim();
-    const value = Number(raw);
+    const normalized = raw.replace(/\s+/g, "").replace(",", ".");
+    const value = Number(normalized);
 
     if (!raw || !Number.isFinite(value) || value < 0) {
       setFeedback({ type: "wrong", text: "Enter a valid numerical answer first." });
@@ -563,19 +566,22 @@ export default function BatEcholocationQuiz({ onFinish }) {
 
                   <form className="batQuiz__answerPanel" onSubmit={handleCheckAnswer}>
                     <label className="batQuiz__answerLabel" htmlFor="bat-quiz-answer">
-                      Your answer
+                      Write your answer
                     </label>
 
                     <div className="batQuiz__answerRow">
                       <input
                         id="bat-quiz-answer"
                         className="batQuiz__answerInput"
-                        type="number"
+                        type="text"
                         inputMode="decimal"
-                        step="any"
-                        min="0"
+                        enterKeyHint="done"
                         autoComplete="off"
-                        placeholder="Type a number"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        placeholder="Write or type a number"
+                        aria-label={`Write or type your answer in ${currentQuestion.unit}`}
                         value={answers[currentIndex]}
                         onChange={handleAnswerChange}
                       />
@@ -709,4 +715,3 @@ export default function BatEcholocationQuiz({ onFinish }) {
     </div>
   );
 }
-
