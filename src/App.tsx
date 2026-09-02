@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import BatEcholocationQuiz from './components/BatEcholocationQuiz'
 
 type Echo = { time: number; amp: number; width: number; label: string }
 type Vec = { x: number; y: number; segments?: { start: number; end: number }[] }
@@ -16,21 +17,21 @@ function PageSwitcher({
     <nav className="page-switcher" aria-label="Simulation pages">
       <button
         type="button"
-        className={active === 'bat' ? 'active' : ''}
-        onClick={onBatEcholocation}
-        disabled={active === 'bat'}
-        aria-current={active === 'bat' ? 'page' : undefined}
-      >
-        Bat echolocation
-      </button>
-      <button
-        type="button"
         className={active === 'industrial' ? 'active' : ''}
         onClick={onIndustrialTesting}
         disabled={active === 'industrial'}
         aria-current={active === 'industrial' ? 'page' : undefined}
       >
         Industrial testing
+      </button>
+      <button
+        type="button"
+        className={active === 'bat' ? 'active' : ''}
+        onClick={onBatEcholocation}
+        disabled={active === 'bat'}
+        aria-current={active === 'bat' ? 'page' : undefined}
+      >
+        Bat echolocation
       </button>
     </nav>
   )
@@ -2049,16 +2050,18 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
   const sceneRef = useRef<SVGSVGElement>(null)
   const mothPositionRef = useRef({ x: 720, y: BAT_SOURCE_Y })
   const draggingMothRef = useRef(false)
+  const quizOpenRef = useRef(false)
   const [mothPosition, setMothPosition] = useState({ x: 720, y: BAT_SOURCE_Y })
   const [simulationMoth, setSimulationMoth] = useState({ x: 720, y: BAT_SOURCE_Y })
   const [draggingMoth, setDraggingMoth] = useState(false)
   const [soundSpeed, setSoundSpeed] = useState(1)
   const [paused, setPaused] = useState(false)
   const [binaural, setBinaural] = useState(false)
-  const [squeakActive, setSqueakActive] = useState(true)
+  const [squeakActive, setSqueakActive] = useState(false)
   const [runId, setRunId] = useState(0)
-  const [phase, setPhase] = useState('Emitting squeak')
+  const [phase, setPhase] = useState('Ready')
   const [brainTrace, setBrainTrace] = useState<BatBrainTrace>({ primary: [], secondary: [] })
+  const [quizOpen, setQuizOpen] = useState(false)
 
   const insectX = mothPosition.x
   const insectY = mothPosition.y
@@ -2092,6 +2095,30 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
     setSqueakActive(false)
   }
 
+  function openQuiz() {
+    quizOpenRef.current = true
+    setQuizOpen(true)
+  }
+
+  function closeQuiz() {
+    quizOpenRef.current = false
+    setQuizOpen(false)
+  }
+
+  useEffect(() => {
+    if (!quizOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeQuiz()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [quizOpen])
+
   useEffect(() => {
     const heldKeys = {
       ArrowLeft: false,
@@ -2113,6 +2140,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
     }
 
     function handleKeyDown(event: KeyboardEvent) {
+      if (quizOpenRef.current) return
       const target = event.target as HTMLElement | null
       if (target?.closest('button, input, select, textarea, [contenteditable="true"]')) return
 
@@ -2390,9 +2418,9 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
                 />
                 <g className="bat-ear-trace-key">
                   <line className="bat-ear-key-primary" x1="708" y1="54" x2="724" y2="54" />
-                  <text x="729" y="58">upper ear</text>
+                  <text x="729" y="58">left ear</text>
                   <line className="bat-ear-key-secondary" x1="794" y1="54" x2="810" y2="54" />
-                  <text x="815" y="58">lower ear</text>
+                  <text x="815" y="58">right ear</text>
                 </g>
               </>
             ) : (
@@ -2407,7 +2435,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
             <line className="bat-graph-axis" x1={BAT_GRAPH_LEFT} y1="75" x2={BAT_GRAPH_LEFT} y2="151" />
             <text className="bat-graph-axis-label" x={BAT_GRAPH_LEFT + 7} y="164">time →</text>
 
-            <text className="bat-call-label" x={BAT_GRAPH_LEFT + 6} y="82">squeak</text>
+            <text className="bat-call-label" x={BAT_GRAPH_LEFT + 6} y="78">squeak!</text>
             {phase === 'Echo detected' && (
               <>
                 <line className="bat-echo-marker" x1={expectedEchoX} y1="76" x2={expectedEchoX} y2="151" />
@@ -2510,6 +2538,14 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           />
           <span className="bat-toggle-track" aria-hidden="true" />
         </label>
+        <button
+          className="bat-quiz-button"
+          type="button"
+          onClick={openQuiz}
+          aria-haspopup="dialog"
+        >
+          Take the quiz
+        </button>
         <p className="bat-keyboard-hint">Space: squeak · Arrow keys: move moth</p>
         <div className={`bat-phase bat-phase-${phase.toLowerCase().replaceAll(' ', '-')}`} aria-live="polite">
           <span className="bat-phase-dot" />
@@ -2521,6 +2557,31 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
       <p className="bat-explanation">
         The bat does not “see” a graph. Its brain measures the time between the squeak and its echo—the same basic idea used by an ultrasound detector.
       </p>
+
+      {quizOpen && (
+        <div
+          className="bat-quiz-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Bat echolocation quiz"
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) closeQuiz()
+          }}
+        >
+          <div className="bat-quiz-modal-panel">
+            <button
+              className="bat-quiz-close"
+              type="button"
+              onClick={closeQuiz}
+              aria-label="Close quiz"
+              autoFocus
+            >
+              ×
+            </button>
+            <BatEcholocationQuiz onFinish={closeQuiz} />
+          </div>
+        </div>
+      )}
 
       <style>{`
         .bat-echo-screen{
@@ -2785,6 +2846,72 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           line-height:1.45;
         }
 
+        .bat-quiz-button{
+          width:100%;
+          min-height:48px;
+          border:1px solid #44ddf7;
+          border-radius:12px;
+          background:linear-gradient(135deg, #0ea5c6, #22d3ee);
+          color:#062c3a;
+          font:700 15px/1 Arial, sans-serif;
+          cursor:pointer;
+          box-shadow:0 6px 18px rgba(8,145,178,.24);
+        }
+
+        .bat-quiz-button:hover{ filter:brightness(1.08); }
+
+        .bat-quiz-button:focus-visible{
+          outline:3px solid #7dd3fc;
+          outline-offset:3px;
+        }
+
+        .bat-quiz-modal{
+          position:fixed;
+          inset:0;
+          z-index:1000;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          padding:18px;
+          overflow:auto;
+          background:rgba(2,8,18,.84);
+          backdrop-filter:blur(7px);
+        }
+
+        .bat-quiz-modal-panel{
+          position:relative;
+          width:min(1320px, 100%);
+          max-height:calc(100svh - 36px);
+          overflow:auto;
+          border:1px solid #385670;
+          border-radius:22px;
+          box-shadow:0 28px 80px rgba(0,0,0,.58);
+        }
+
+        .bat-quiz-close{
+          position:sticky;
+          top:12px;
+          float:right;
+          z-index:4;
+          width:42px;
+          height:42px;
+          margin:12px 12px -54px 0;
+          border:1px solid #668098;
+          border-radius:50%;
+          background:#132a40;
+          color:#fff;
+          font:400 30px/36px Arial, sans-serif;
+          cursor:pointer;
+          box-shadow:0 5px 16px rgba(0,0,0,.35);
+        }
+
+        .bat-quiz-close:hover{ background:#1e3d58; }
+
+        .bat-quiz-close:focus-visible{
+          outline:3px solid #22d3ee;
+          outline-offset:2px;
+        }
+
         .bat-phase{
           display:flex;
           align-items:center;
@@ -2834,6 +2961,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           }
           .bat-speed-control,
           .bat-binaural-control,
+          .bat-quiz-button,
           .bat-phase{ grid-column:1 / -1; }
           .bat-phase{ justify-content:center; margin-top:0; }
           .bat-send-button,
