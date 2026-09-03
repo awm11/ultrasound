@@ -83,6 +83,23 @@ const QUESTIONS = [
   },
 ];
 
+const WORKING_HELP = [
+  { distance: "distance", time: "0.020" },
+  { distance: "5.1", time: "time" },
+  { distance: "distance", time: "0.025" },
+  { distance: "distance", time: "0.8" },
+  { distance: "distance", time: "1.2" },
+  { distance: "1.7", time: "time" },
+  { distance: "distance", time: "0.015" },
+  { distance: "0.68", time: "time" },
+];
+
+const WORKING_HELP_COLOURS = {
+  distance: "#7c3aed",
+  speed: "#047857",
+  time: "#c2410c",
+};
+
 // The six facts removed from the original list were 7, 8, 14, 16, 18 and 19.
 const BAT_FACTS = [
   "Bats are the only mammals capable of true powered flight.",
@@ -139,8 +156,13 @@ function getSession() {
       answerInkStrokes: QUESTIONS.map(() => []),
       recognisedAnswers: QUESTIONS.map(() => ""),
       autoShowBatPictures: true,
+      wrongAttempts: QUESTIONS.map(() => 0),
+      workingHelpShown: QUESTIONS.map(() => false),
     };
   }
+
+  SESSION_CACHE.wrongAttempts ??= QUESTIONS.map(() => 0);
+  SESSION_CACHE.workingHelpShown ??= QUESTIONS.map(() => false);
 
   return SESSION_CACHE;
 }
@@ -180,9 +202,16 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   const [pictureRevealed, setPictureRevealed] = useState(
     session.autoShowBatPictures
   );
+  const [wrongAttempts, setWrongAttempts] = useState(() => [
+    ...session.wrongAttempts,
+  ]);
+  const [workingHelpShown, setWorkingHelpShown] = useState(() => [
+    ...session.workingHelpShown,
+  ]);
 
   const seenRewardsRef = useRef(new Set(session.seenRewards));
   const drawingsRef = useRef(session.drawings);
+  const workingHelpShownRef = useRef(session.workingHelpShown);
   const currentIndexRef = useRef(session.currentIndex);
   const drawingRef = useRef(false);
   const activeStrokeRef = useRef(null);
@@ -243,6 +272,15 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     session.autoShowBatPictures = autoShowBatPictures;
   }, [autoShowBatPictures, session]);
 
+  useEffect(() => {
+    session.wrongAttempts = wrongAttempts;
+  }, [wrongAttempts, session]);
+
+  useEffect(() => {
+    session.workingHelpShown = workingHelpShown;
+    workingHelpShownRef.current = workingHelpShown;
+  }, [workingHelpShown, session]);
+
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -259,6 +297,52 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     ctx.restore();
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const helpValues = workingHelpShownRef.current[currentIndexRef.current]
+      ? WORKING_HELP[currentIndexRef.current]
+      : null;
+
+    if (helpValues) {
+      const fontSize = Math.max(22, Math.min(32, rect.width * 0.043));
+      const helpLines = [
+        [
+          { text: "distance", quantity: "distance" },
+          { text: " = ½ × " },
+          { text: "speed", quantity: "speed" },
+          { text: " × " },
+          { text: "time", quantity: "time" },
+        ],
+        [
+          { text: helpValues.distance, quantity: "distance" },
+          { text: " = ½ × " },
+          { text: "340", quantity: "speed" },
+          { text: " × " },
+          { text: helpValues.time, quantity: "time" },
+        ],
+      ];
+
+      ctx.save();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.font = `600 ${fontSize}px "Segoe Print", "Comic Sans MS", sans-serif`;
+      ctx.textBaseline = "top";
+      helpLines.forEach((segments, index) => {
+        const lineWidth = segments.reduce(
+          (total, segment) => total + ctx.measureText(segment.text).width,
+          0
+        );
+        let x = (rect.width - lineWidth) / 2;
+        const y = rect.height * 0.08 + index * fontSize * 1.65;
+
+        segments.forEach((segment) => {
+          ctx.fillStyle = segment.quantity
+            ? WORKING_HELP_COLOURS[segment.quantity]
+            : "#172554";
+          ctx.fillText(segment.text, x, y);
+          x += ctx.measureText(segment.text).width;
+        });
+      });
+      ctx.restore();
+    }
 
     const strokes = drawingsRef.current[currentIndexRef.current] || [];
 
@@ -681,6 +765,26 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
             text: `${currentQuestion.hint} Change your answer and try again.`,
           }
     );
+
+    if (!isCorrect) {
+      setWrongAttempts((previous) => {
+        const next = [...previous];
+        next[currentIndex] += 1;
+        return next;
+      });
+    }
+  };
+
+  const handleShowWorkingHelp = () => {
+    if (currentIndex >= WORKING_HELP.length) return;
+
+    setWorkingHelpShown((previous) => {
+      const next = [...previous];
+      next[currentIndex] = true;
+      workingHelpShownRef.current = next;
+      return next;
+    });
+    window.requestAnimationFrame(redraw);
   };
 
   const moveToQuestion = (index) => {
@@ -692,7 +796,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   };
 
   const handleNext = () => {
-    if (!checked[currentIndex]) return;
+    if (!correct[currentIndex]) return;
 
     const completedQuestion = currentIndex + 1;
 
@@ -1254,6 +1358,19 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
                       </div>
                     ) : null}
 
+                    {currentIndex < WORKING_HELP.length &&
+                    wrongAttempts[currentIndex] >= 2 &&
+                    !workingHelpShown[currentIndex] &&
+                    !correct[currentIndex] ? (
+                      <button
+                        type="button"
+                        className="batQuiz__stuckButton"
+                        onClick={handleShowWorkingHelp}
+                      >
+                        I’m completely stuck
+                      </button>
+                    ) : null}
+
                     <button className="batQuiz__button batQuiz__button--cyan batQuiz__check" type="submit">
                       Check answer
                     </button>
@@ -1301,7 +1418,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
               <button
                 type="button"
                 className="batQuiz__button batQuiz__button--cyan"
-                disabled={!checked[currentIndex]}
+                disabled={!correct[currentIndex]}
                 onClick={handleNext}
               >
                 {currentIndex === QUESTIONS.length - 1 ? "Finish →" : "Next question →"}

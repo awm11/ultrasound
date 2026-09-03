@@ -3,6 +3,10 @@ import BatEcholocationQuiz from './components/BatEcholocationQuiz'
 
 type Echo = { time: number; amp: number; width: number; label: string }
 type Vec = { x: number; y: number; segments?: { start: number; end: number }[] }
+type WorkStroke = {
+  mode: 'draw' | 'erase'
+  points: { x: number; y: number }[]
+}
 
 function PageSwitcher({
   active,
@@ -34,6 +38,265 @@ function PageSwitcher({
         Bat echolocation
       </button>
     </nav>
+  )
+}
+
+function FullscreenButton() {
+  const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement))
+  const fullscreenAvailable = Boolean(document.fullscreenEnabled)
+
+  useEffect(() => {
+    const updateFullscreenState = () => setIsFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', updateFullscreenState)
+    return () => document.removeEventListener('fullscreenchange', updateFullscreenState)
+  }, [])
+
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen()
+      } else {
+        await document.documentElement.requestFullscreen()
+      }
+    } catch {
+      // Some embedded browsers prevent fullscreen even after a user gesture.
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="fullscreen-button"
+        onClick={toggleFullscreen}
+        disabled={!fullscreenAvailable}
+        aria-label={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
+        title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+      >
+        {isFullscreen ? (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 4v5H4 M15 4v5h5 M9 20v-5H4 M15 20v-5h5" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 4H4v5 M15 4h5v5 M9 20H4v-5 M15 20h5v-5" />
+          </svg>
+        )}
+      </button>
+      <style>{`
+        .fullscreen-button{
+          position:fixed;
+          right:18px;
+          bottom:18px;
+          z-index:950;
+          width:48px;
+          height:48px;
+          display:grid;
+          place-items:center;
+          padding:0;
+          border:1px solid #67e8f9;
+          border-radius:12px;
+          background:rgba(12,32,49,.92);
+          color:#e8fbff;
+          box-shadow:0 7px 22px rgba(0,0,0,.38);
+          cursor:pointer;
+          backdrop-filter:blur(8px);
+        }
+        .fullscreen-button:hover{
+          background:#185069;
+          transform:translateY(-1px);
+        }
+        .fullscreen-button:focus-visible{
+          outline:3px solid #fbbf24;
+          outline-offset:3px;
+        }
+        .fullscreen-button:disabled{
+          display:none;
+        }
+        .fullscreen-button svg{
+          width:25px;
+          height:25px;
+          fill:none;
+          stroke:currentColor;
+          stroke-width:2;
+          stroke-linecap:round;
+          stroke-linejoin:round;
+        }
+      `}</style>
+    </>
+  )
+}
+
+function LandingScreen({
+  onIndustrialTesting,
+  onBatEcholocation,
+}: {
+  onIndustrialTesting: () => void
+  onBatEcholocation: () => void
+}) {
+  return (
+    <main className="launch-screen">
+      <header className="launch-header">
+        <div className="launch-mark" aria-hidden="true">U</div>
+        <div>
+          <h1>Ultrasound</h1>
+          <p>Choose an investigation</p>
+        </div>
+      </header>
+
+      <div className="launch-grid">
+        <button className="launch-card launch-card-industrial" type="button" onClick={onIndustrialTesting}>
+          <span className="launch-illustration" aria-hidden="true">
+            <svg viewBox="0 0 260 190">
+              <rect className="launch-steel" x="38" y="67" width="184" height="94" rx="5" />
+              <rect className="launch-probe" x="100" y="48" width="60" height="24" rx="7" />
+              <path className="launch-cable" d="M130 48 C150 18 213 35 237 54" />
+              <path className="launch-pulse" d="M113 84 H147 M108 102 H152 M104 120 H156" />
+              <path className="launch-crack" d="M96 137 l18 -7 18 8 20 -8 18 7" />
+            </svg>
+          </span>
+          <span className="launch-card-label">
+            <strong>Industrial testing</strong>
+            <small>Find hidden defects using echoes</small>
+          </span>
+        </button>
+
+        <button className="launch-card launch-card-bat" type="button" onClick={onBatEcholocation}>
+          <span className="launch-illustration" aria-hidden="true">
+            <svg viewBox="0 0 260 190">
+              <circle className="launch-moon" cx="210" cy="42" r="24" />
+              <path className="launch-bat" d="M47 102 Q75 60 111 91 Q130 70 149 91 Q185 60 213 102 Q178 87 162 123 Q145 107 130 135 Q115 107 98 123 Q82 87 47 102 Z" />
+              <path className="launch-wave" d="M158 91 Q177 110 158 129 M174 81 Q205 110 174 139 M190 72 Q233 110 190 148" />
+              <g className="launch-moth" transform="translate(224 112)">
+                <ellipse cx="0" cy="0" rx="5" ry="11" />
+                <ellipse cx="-8" cy="-4" rx="8" ry="5" />
+                <ellipse cx="8" cy="-4" rx="8" ry="5" />
+              </g>
+            </svg>
+          </span>
+          <span className="launch-card-label">
+            <strong>Bat echolocation</strong>
+            <small>Explore ultrasound in nature</small>
+          </span>
+        </button>
+      </div>
+
+      <style>{`
+        .launch-screen{
+          box-sizing:border-box;
+          width:100%;
+          min-height:100svh;
+          display:flex;
+          flex-direction:column;
+          align-items:center;
+          justify-content:center;
+          gap:42px;
+          padding:42px 24px 56px;
+          color:#e8f7fb;
+          background:
+            radial-gradient(circle at 50% 10%,rgba(39,139,172,.45),rgba(39,139,172,0) 38%),
+            radial-gradient(circle at 18% 82%,rgba(19,118,105,.34),rgba(19,118,105,0) 32%),
+            linear-gradient(155deg,#071522 0%,#102d42 52%,#092f31 100%);
+          font-family:Arial,sans-serif;
+        }
+        .launch-header{
+          display:flex;
+          align-items:center;
+          gap:18px;
+          text-align:left;
+        }
+        .launch-mark{
+          width:76px;
+          height:76px;
+          display:grid;
+          place-items:center;
+          border:5px solid white;
+          border-radius:50%;
+          color:white;
+          background:#1976b9;
+          box-shadow:0 6px 0 #0c568e,0 10px 24px rgba(12,86,142,.28);
+          font-size:45px;
+          font-weight:900;
+        }
+        .launch-header h1{
+          margin:0;
+          color:#f2fbff;
+          font-size:clamp(42px,6vw,72px);
+          line-height:.95;
+          font-weight:800;
+          letter-spacing:-.04em;
+        }
+        .launch-header p{
+          margin:9px 0 0;
+          color:#acd7e3;
+          font-size:19px;
+          font-weight:700;
+        }
+        .launch-grid{
+          display:grid;
+          grid-template-columns:repeat(2,minmax(250px,340px));
+          gap:34px;
+        }
+        .launch-card{
+          aspect-ratio:1;
+          min-width:0;
+          display:flex;
+          flex-direction:column;
+          overflow:hidden;
+          padding:0;
+          border:5px solid white;
+          border-radius:18px;
+          background:#fff;
+          box-shadow:0 8px 0 rgba(28,76,107,.24),0 16px 35px rgba(28,76,107,.25);
+          cursor:pointer;
+          transition:transform .16s ease,box-shadow .16s ease;
+        }
+        .launch-card:hover{
+          transform:translateY(-6px);
+          box-shadow:0 12px 0 rgba(28,76,107,.22),0 22px 42px rgba(28,76,107,.28);
+        }
+        .launch-card:focus-visible{
+          outline:5px solid #f59e0b;
+          outline-offset:5px;
+        }
+        .launch-illustration{
+          flex:1;
+          display:grid;
+          place-items:center;
+          width:100%;
+        }
+        .launch-illustration svg{ width:88%;height:auto; }
+        .launch-card-industrial .launch-illustration{ background:linear-gradient(160deg,#eaf6ff,#b9d6ea); }
+        .launch-card-bat .launch-illustration{ background:linear-gradient(160deg,#162a4c,#071426); }
+        .launch-steel{ fill:#cad1d7;stroke:#526779;stroke-width:4; }
+        .launch-probe{ fill:#168dd0;stroke:#075783;stroke-width:3; }
+        .launch-cable{ fill:none;stroke:#34495a;stroke-width:5;stroke-linecap:round; }
+        .launch-pulse{ fill:none;stroke:#05a9d6;stroke-width:4;stroke-linecap:round; }
+        .launch-crack{ fill:none;stroke:#25313a;stroke-width:4;stroke-linecap:round; }
+        .launch-moon{ fill:#f3dc83; }
+        .launch-bat{ fill:#111925;stroke:#73839d;stroke-width:2; }
+        .launch-wave{ fill:none;stroke:#58dff2;stroke-width:4;stroke-linecap:round; }
+        .launch-moth{ fill:#f5cf4c; }
+        .launch-card-label{
+          min-height:92px;
+          display:flex;
+          flex-direction:column;
+          justify-content:center;
+          gap:5px;
+          padding:12px 18px;
+          color:white;
+        }
+        .launch-card-industrial .launch-card-label{ background:#1976b9; }
+        .launch-card-bat .launch-card-label{ background:#5d4db2; }
+        .launch-card-label strong{ font-size:23px; }
+        .launch-card-label small{ font-size:14px;opacity:.9; }
+        @media(max-width:700px){
+          .launch-screen{ justify-content:flex-start;gap:30px;padding-top:28px; }
+          .launch-mark{ width:58px;height:58px;font-size:34px; }
+          .launch-grid{ grid-template-columns:minmax(240px,330px);gap:24px; }
+        }
+      `}</style>
+    </main>
   )
 }
 
@@ -119,11 +382,19 @@ function UltrasoundTestingScreen({ onNext }: { onNext: () => void }) {
   const rulerGrabOffset = useRef({ x: 0, y: 0 })
   const keyState = useRef({left: false, right: false,})
   const [challengeMode, setChallengeMode] = useState(false)
+  const [challengeSwapped, setChallengeSwapped] = useState(false)
   const challengeRef = useRef(false)
+  const challengePromptTimerRef = useRef<number | null>(null)
+  const [challengePromptFlash, setChallengePromptFlash] = useState(false)
+  const [microsecondsHelpOpen, setMicrosecondsHelpOpen] = useState(false)
   const [guessX, setGuessX] = useState<number | null>(null)
   const guessXRef = useRef<{ x: number; y: number } | null>(null)
   const [guessDistance, setGuessDistance] = useState<number | null>(null)
   const [guessFeedback, setGuessFeedback] = useState('')
+  const challengeWorkCanvasRef = useRef<HTMLCanvasElement>(null)
+  const challengeWorkStrokesRef = useRef<WorkStroke[]>([])
+  const challengeWorkActiveStrokeRef = useRef<WorkStroke | null>(null)
+  const challengeWorkDrawingRef = useRef(false)
 
   useEffect(() => {
     teacherRef.current = teacher
@@ -132,6 +403,15 @@ function UltrasoundTestingScreen({ onNext }: { onNext: () => void }) {
   useEffect(() => {
   showCrackRef.current = showCrack
 }, [showCrack])
+
+  useEffect(
+    () => () => {
+      if (challengePromptTimerRef.current !== null) {
+        window.clearTimeout(challengePromptTimerRef.current)
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -274,6 +554,10 @@ function UltrasoundTestingScreen({ onNext }: { onNext: () => void }) {
       }
     }
 
+    function isInsideSteelBlock(x: number, y: number) {
+      return x >= 80 && x <= 600 && y >= BLOCK_TOP && y <= BLOCK_BOTTOM
+    }
+
     function handlePointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
       event.preventDefault()
 
@@ -324,7 +608,11 @@ function UltrasoundTestingScreen({ onNext }: { onNext: () => void }) {
 
 
       // Challenge guess
-      if (challengeRef.current && !showCrackRef.current) {
+      if (
+        challengeRef.current &&
+        !showCrackRef.current &&
+        isInsideSteelBlock(x, y)
+      ) {
         setGuessX(x)
         guessXRef.current = {x, y}
 
@@ -349,10 +637,25 @@ function UltrasoundTestingScreen({ onNext }: { onNext: () => void }) {
     }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
-    
+    const canvas = canvasRef.current
+    if (canvas && !draggingRef.current && !rulerDragging.current) {
+      const rect = canvas.getBoundingClientRect()
+      const x = (event.clientX - rect.left) * (canvas.width / rect.width)
+      const y = (event.clientY - rect.top) * (canvas.height / rect.height)
+      const canPlaceGuess =
+        challengeRef.current &&
+        !showCrackRef.current &&
+        isInsideSteelBlock(x, y)
+
+      canvas.style.cursor = canPlaceGuess
+        ? 'crosshair'
+        : isNearProbe(event.clientX, event.clientY)
+          ? 'grab'
+          : 'default'
+    }
+
     if (rulerDragging.current) {
 
-    const canvas = canvasRef.current
     if (!canvas) return
 
     const rect = canvas.getBoundingClientRect()
@@ -381,6 +684,12 @@ function UltrasoundTestingScreen({ onNext }: { onNext: () => void }) {
     draggingRef.current = null
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  function handleCanvasPointerLeave(event: ReactPointerEvent<HTMLCanvasElement>) {
+    if (!draggingRef.current && !rulerDragging.current) {
+      event.currentTarget.style.cursor = challengeRef.current ? 'default' : 'grab'
     }
   }
 
@@ -422,21 +731,42 @@ function UltrasoundTestingScreen({ onNext }: { onNext: () => void }) {
   }
     function startChallenge() {
     challengeRef.current = true
+    setChallengeMode(true)
+    setChallengePromptFlash(false)
+    setMicrosecondsHelpOpen(false)
     setGuessX(null)
     guessXRef.current = null
+    setGuessDistance(null)
+    setGuessFeedback('')
     randomiseCrack()
     setShowCrack(false)
+    showCrackRef.current = false
     signal.current = []
     echoQueue.current = []
     setTrace([])
     setEchoes([])
     speedRef.current = 1.0
     setSpeed(1.0)
+    challengeWorkStrokesRef.current = []
+    window.requestAnimationFrame(redrawChallengeWorkspace)
     }
  
     function revealAnswer() {
     // challengeRef.current = false
-    if (guessXRef.current === null) return
+    if (guessXRef.current === null) {
+      if (challengePromptTimerRef.current !== null) {
+        window.clearTimeout(challengePromptTimerRef.current)
+      }
+      setChallengePromptFlash(false)
+      window.requestAnimationFrame(() => {
+        setChallengePromptFlash(true)
+        challengePromptTimerRef.current = window.setTimeout(() => {
+          setChallengePromptFlash(false)
+          challengePromptTimerRef.current = null
+        }, 720)
+      })
+      return
+    }
 
     const dx = guessXRef.current.x - crackRef.current.x
     const dy = guessXRef.current.y - crackRef.current.y
@@ -456,6 +786,7 @@ function UltrasoundTestingScreen({ onNext }: { onNext: () => void }) {
     }
 
     setShowCrack(true)
+    showCrackRef.current = true
     }
 
 
@@ -486,6 +817,13 @@ function UltrasoundTestingScreen({ onNext }: { onNext: () => void }) {
     setEchoes([])
     setPlaying(false)
     challengeRef.current = false
+    setChallengeMode(false)
+    setChallengePromptFlash(false)
+    setMicrosecondsHelpOpen(false)
+    if (challengePromptTimerRef.current !== null) {
+      window.clearTimeout(challengePromptTimerRef.current)
+      challengePromptTimerRef.current = null
+    }
     // revealLineRef.current = null
     guessXRef.current = null
     showCrackRef.current = true
@@ -497,6 +835,8 @@ function UltrasoundTestingScreen({ onNext }: { onNext: () => void }) {
     setGuessX(null)
     guessXRef.current = null
     setGuessDistance(null)
+    setGuessFeedback('')
+    challengeWorkStrokesRef.current = []
   }
 
   function drawBeamSegments(ctx: CanvasRenderingContext2D, beam: Vec | null, color: string) {
@@ -529,6 +869,94 @@ function handleTraceMove(e: React.MouseEvent<SVGSVGElement>) {
   setCursorX(clampedX)
   setCursorTime(time)
 }
+
+  function redrawChallengeWorkspace() {
+    const canvas = challengeWorkCanvasRef.current
+    if (!canvas) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    challengeWorkStrokesRef.current.forEach((stroke) => {
+      if (!stroke.points.length) return
+
+      ctx.save()
+      ctx.globalCompositeOperation = stroke.mode === 'erase' ? 'destination-out' : 'source-over'
+      ctx.strokeStyle = '#172554'
+      ctx.fillStyle = '#172554'
+      ctx.lineWidth = stroke.mode === 'erase' ? 44 : 6
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+
+      const first = stroke.points[0]
+      if (stroke.points.length === 1) {
+        ctx.beginPath()
+        ctx.arc(first.x, first.y, stroke.mode === 'erase' ? 22 : 3, 0, Math.PI * 2)
+        ctx.fill()
+      } else {
+        ctx.beginPath()
+        ctx.moveTo(first.x, first.y)
+        stroke.points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y))
+        ctx.stroke()
+      }
+
+      ctx.restore()
+    })
+  }
+
+  function getChallengeWorkPoint(event: ReactPointerEvent<HTMLCanvasElement>) {
+    const canvas = challengeWorkCanvasRef.current
+    if (!canvas) return { x: 0, y: 0 }
+
+    const rect = canvas.getBoundingClientRect()
+    return {
+      x: (event.clientX - rect.left) * (canvas.width / rect.width),
+      y: (event.clientY - rect.top) * (canvas.height / rect.height),
+    }
+  }
+
+  function handleChallengeWorkPointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+
+    event.preventDefault()
+    const stroke: WorkStroke = {
+      mode:
+        event.pointerType === 'pen' &&
+        (event.button === 5 || (event.buttons & 32) === 32)
+          ? 'erase'
+          : 'draw',
+      points: [getChallengeWorkPoint(event)],
+    }
+
+    challengeWorkDrawingRef.current = true
+    challengeWorkActiveStrokeRef.current = stroke
+    challengeWorkStrokesRef.current.push(stroke)
+    event.currentTarget.setPointerCapture(event.pointerId)
+    redrawChallengeWorkspace()
+  }
+
+  function handleChallengeWorkPointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
+    if (!challengeWorkDrawingRef.current || !challengeWorkActiveStrokeRef.current) return
+
+    event.preventDefault()
+    challengeWorkActiveStrokeRef.current.points.push(getChallengeWorkPoint(event))
+    redrawChallengeWorkspace()
+  }
+
+  function handleChallengeWorkPointerEnd(event: ReactPointerEvent<HTMLCanvasElement>) {
+    challengeWorkDrawingRef.current = false
+    challengeWorkActiveStrokeRef.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  function clearChallengeWorkspace() {
+    challengeWorkStrokesRef.current = []
+    redrawChallengeWorkspace()
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current!
@@ -1014,9 +1442,9 @@ return (
   <div className="app">
 
     <div className="industrial-header-row">
-      <div className={`challenge-banner ${challengeRef.current ? 'active' : ''}`}>
+      <div className={`challenge-banner ${challengeMode ? 'active' : ''}`}>
         <span className="banner-copy">
-          {challengeRef.current
+          {challengeMode
               ? '🎯 CHALLENGE MODE • Locate the hidden defect'
               : '🔎  EXPLORATION MODE'}
         </span>
@@ -1024,7 +1452,11 @@ return (
       <PageSwitcher active="industrial" onBatEcholocation={onNext} />
     </div>
 
-    <div className="top-row">
+    <div
+      className={`top-row ${challengeMode ? 'is-challenge' : ''} ${
+        challengeSwapped ? 'is-lower-swapped' : ''
+      }`}
+    >
 
       <div className="simulation">
 
@@ -1036,8 +1468,30 @@ return (
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
-          style={{ cursor: 'grab', touchAction: 'none' }}
+          onPointerLeave={handleCanvasPointerLeave}
+          style={{ cursor: challengeMode ? 'default' : 'grab', touchAction: 'none' }}
         />
+
+        <div className={`simulation-lower ${challengeMode ? 'challenge-lower-task' : ''}`}>
+        {challengeMode && guessDistance === null && (
+          <div className={`challenge-info ${challengePromptFlash ? 'is-pulsing' : ''}`}>
+            <h2>Hidden Defect Challenge</h2>
+            <p>
+              Use the probe to locate the hidden defect.<br />
+              Click on the steel to mark the defect location, then click "Reveal answer" to see how close you were.<br />
+              The speed of sound in steel is 5890 m/s.
+            </p>
+          </div>
+        )}
+
+        {guessDistance !== null && guessXRef.current && (
+          <div className="feedback-panel">
+            <div>
+              <strong>Distance from defect centre:</strong> {(guessDistance/14).toFixed(1)} cm
+            </div>
+            <div>{guessFeedback}</div>
+          </div>
+        )}
 
         <div className="controls">
 {/* 
@@ -1095,7 +1549,7 @@ return (
             </button>
 
         
-            {!challengeRef.current ? (
+            {!challengeMode ? (
             <button
             className="control-btn"
             style={{
@@ -1127,6 +1581,7 @@ return (
           </div>
 
         </div>
+        </div>
 
       </div>
 
@@ -1136,6 +1591,37 @@ return (
         <h2>A-scan</h2> */}
 
         <div className="ascan-container">
+
+<button
+  type="button"
+  className="microseconds-help-button"
+  aria-expanded={microsecondsHelpOpen}
+  aria-controls="microseconds-help"
+  onClick={() => setMicrosecondsHelpOpen((open) => !open)}
+>
+  What's a µs?
+</button>
+
+{microsecondsHelpOpen && (
+  <aside id="microseconds-help" className="microseconds-help" role="dialog" aria-label="Microseconds help">
+    <button
+      type="button"
+      className="microseconds-help-close"
+      aria-label="Close microseconds help"
+      onClick={() => setMicrosecondsHelpOpen(false)}
+    >
+      ×
+    </button>
+    <strong>µs means microsecond.</strong>
+    <span>One microsecond is one millionth of a second.</span>
+    <span className="microseconds-power">
+      1 µs = 1 × 10<sup className="microseconds-exponent">−6</sup> s
+    </span>
+    <span>
+      Use × 10<sup className="microseconds-exponent">−6</sup> when converting a graph reading into seconds.
+    </span>
+  </aside>
+)}
 
 <svg
   width={850}
@@ -1272,38 +1758,52 @@ return (
 
         </div>
 
+        {challengeMode && (
+          <section className="challenge-workspace" aria-label="Challenge working space">
+            <div className="challenge-workspace-header">
+              <span>Working space</span>
+              <button type="button" onClick={clearChallengeWorkspace}>Clear</button>
+            </div>
+            <div className="challenge-workspace-paper">
+              <canvas
+                ref={challengeWorkCanvasRef}
+                className="challenge-workspace-canvas"
+                width={1700}
+                height={520}
+                aria-label="Write your challenge calculations here"
+                onPointerDown={handleChallengeWorkPointerDown}
+                onPointerMove={handleChallengeWorkPointerMove}
+                onPointerUp={handleChallengeWorkPointerEnd}
+                onPointerCancel={handleChallengeWorkPointerEnd}
+              />
+            </div>
+          </section>
+        )}
+
       </div>
+
+      {challengeMode && (
+        <button
+          type="button"
+          className="industrial-swap"
+          aria-label="Swap the lower challenge panels"
+          aria-pressed={challengeSwapped}
+          title="Swap sides"
+          onClick={() => setChallengeSwapped((value) => !value)}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 7h11" />
+            <path d="m15 4 3 3-3 3" />
+            <path d="M17 17H6" />
+            <path d="m9 14-3 3 3 3" />
+          </svg>
+        </button>
+      )}
 
     </div>
 
-{guessDistance !== null && guessXRef.current && (
-      <div className="feedback-panel">
-
-        <div>
-          <strong>Distance from defect centre:</strong> {(guessDistance/14).toFixed(1)} cm
-        </div>
-
-        <div>
-          {guessFeedback}
-        </div>
-
-      </div>
-    )}
-
-    <div className={`info-panel ${challengeRef.current ? 'challenge-info' : ''}`}>
-
-    
-
-    {challengeRef.current ? (
-      <>
-        <h2>Hidden Defect Challenge</h2>
-        <p>
-          Use the probe to locate the hidden defect.<br />
-          Click on the steel to mark the defect location, then click "Reveal answer" to see how close you were.<br />
-          The speed of sound in steel is 5890 m/s.
-        </p>
-      </>
-    ) : (
+    {!challengeMode && (
+      <div className="info-panel">
       <>
         <h2>Ultrasound Non-destructive Testing</h2>
         <p>
@@ -1313,10 +1813,11 @@ return (
           The speed of sound in steel is 5890 m/s.
         </p>
       </>
+      </div>
     )}
 
 
-    {!challengeRef.current && (
+    {!challengeMode && (
         <div className="extra-controls">
 
         <div className="speed-control">
@@ -1427,21 +1928,112 @@ return (
 
       .top-row{
         margin-top:0px;
-        display:grid;
-        grid-template-columns:700px 700px;
+        position:relative;
+        display:flex;
+        width:1580px;
         gap:30px;
         justify-content:center;
         align-items:start;
       }
 
+      .top-row.is-challenge{
+        display:grid;
+        grid-template-columns:700px 850px;
+        grid-template-rows:auto auto;
+        column-gap:30px;
+        row-gap:16px;
+      }
+
       .simulation{
-      transform: translateX(-70px);
+        width:700px;
+        flex:0 0 700px;
       }
 
       .ascan-panel{
+        width:850px;
+        flex:0 0 850px;
         display:flex;
         flex-direction:column;
         align-items:center;
+        gap:16px;
+      }
+
+      .top-row.is-challenge .simulation,
+      .top-row.is-challenge .ascan-panel{
+        display:contents;
+      }
+
+      .top-row.is-challenge .simulation > canvas{
+        grid-column:1;
+        grid-row:1;
+      }
+
+      .top-row.is-challenge .ascan-container{
+        grid-column:2;
+        grid-row:1;
+      }
+
+      .challenge-lower-task{
+        grid-column:1;
+        grid-row:2;
+        width:700px;
+        min-width:0;
+        display:flex;
+        flex-direction:column;
+      }
+
+      .top-row.is-challenge .challenge-workspace{
+        grid-column:2;
+        grid-row:2;
+        width:850px;
+      }
+
+      .top-row.is-lower-swapped .challenge-lower-task{
+        grid-column:1 / 3;
+        justify-self:end;
+      }
+
+      .top-row.is-lower-swapped .challenge-workspace{
+        grid-column:1 / 3;
+        justify-self:start;
+      }
+
+      .top-row.is-lower-swapped .industrial-swap{
+        left:865px;
+      }
+
+      .industrial-swap{
+        position:absolute;
+        top:704px;
+        left:715px;
+        z-index:10;
+        width:52px;
+        height:52px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        padding:0;
+        transform:translate(-50%, -50%);
+        border:1px solid #fff1c2;
+        border-radius:999px;
+        background:linear-gradient(135deg,#f59e0b,#ef4444);
+        box-shadow:0 4px 12px rgba(0,0,0,.38),0 0 0 3px rgba(106,49,18,.55);
+        color:#fff;
+        cursor:pointer;
+      }
+
+      .industrial-swap:hover{
+        filter:brightness(1.08);
+      }
+
+      .industrial-swap svg{
+        width:25px;
+        height:25px;
+        fill:none;
+        stroke:currentColor;
+        stroke-width:1.9;
+        stroke-linecap:round;
+        stroke-linejoin:round;
       }
 
       .info-panel{
@@ -1452,21 +2044,97 @@ return (
 
       .challenge-info{
         background:linear-gradient(90deg,#f59e0b,#ef4444);
-          color: white;
-          padding: 10px;
-          width: 850px;
-          border: 1px solid white;
-          border-radius: 10px;
-          box-shadow:0 0 20px rgba(239,68,68,.45);
+        box-sizing:border-box;
+        color:white;
+        margin-top:0;
+        padding:16px 18px;
+        width:100%;
+        border:1px solid white;
+        border-radius:10px;
+        box-shadow:0 0 20px rgba(239,68,68,.45);
+        text-align:left;
+      }
+
+      .challenge-info h2{
+        color:white;
+      }
+
+      .challenge-info p{
+        line-height:1.55;
+      }
+
+      .challenge-info.is-pulsing{
+        animation:challengePromptPulse .72s ease-in-out;
+      }
+
+      @keyframes challengePromptPulse{
+        0%,100%{ transform:scale(1); filter:brightness(1); }
+        32%{ transform:scale(1.018); filter:brightness(1.35); box-shadow:0 0 34px rgba(255,193,7,.95); }
+        68%{ transform:scale(1.006); filter:brightness(1.12); }
       }
 
       .feedback-panel{
-        margin-top:0px;
-        padding:5px 20px;
+        box-sizing:border-box;
+        width:100%;
+        margin-top:0;
+        padding:10px 20px;
         border-radius:8px;
         background: #f8fafc;
         border:1px solid #cbd5e1;
+        color:#1f2937;
         font-weight:600;
+        text-align:left;
+      }
+
+      .challenge-workspace{
+        box-sizing:border-box;
+        width:850px;
+        padding:12px;
+        border:2px solid #41536b;
+        border-radius:10px;
+        background:#102238;
+        box-shadow:0 5px 16px rgba(0,0,0,.3);
+      }
+
+      .challenge-workspace-header{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        margin-bottom:8px;
+        color:#f8fafc;
+        font-weight:700;
+      }
+
+      .challenge-workspace-header button{
+        padding:6px 12px;
+        border:1px solid #71839a;
+        border-radius:7px;
+        background:#1e344d;
+        color:#f8fafc;
+        font-weight:700;
+        cursor:pointer;
+      }
+
+      .challenge-workspace-paper{
+        height:260px;
+        overflow:hidden;
+        border:2px solid #9dacbd;
+        border-radius:7px;
+        background-color:#fff;
+        background-image:linear-gradient(#d8dee6 1px, transparent 1px),
+          linear-gradient(90deg, #d8dee6 1px, transparent 1px);
+        background-size:28px 28px;
+      }
+
+      .challenge-workspace-canvas{
+        width:100%;
+        height:100%;
+        border:0;
+        border-radius:0;
+        box-shadow:none;
+        background:transparent;
+        cursor:crosshair;
+        touch-action:none;
       }
 
       .extra-controls{
@@ -1533,6 +2201,83 @@ return (
         }
 
       .ascan-container{
+        position:relative;
+      }
+
+      .microseconds-help-button{
+        position:absolute;
+        top:14px;
+        right:14px;
+        z-index:3;
+        padding:7px 11px;
+        border:1px solid #67e8f9;
+        border-radius:8px;
+        background:#123447;
+        color:#dffbff;
+        font-weight:700;
+        cursor:pointer;
+      }
+
+      .microseconds-help-button:hover{
+        background:#185069;
+      }
+
+      .microseconds-help{
+        position:absolute;
+        top:55px;
+        right:14px;
+        z-index:4;
+        box-sizing:border-box;
+        width:340px;
+        display:flex;
+        flex-direction:column;
+        gap:8px;
+        padding:16px 40px 16px 16px;
+        border:1px solid #67e8f9;
+        border-radius:10px;
+        background:#f0fdff;
+        color:#123047;
+        text-align:left;
+        box-shadow:0 12px 30px rgba(0,0,0,.4);
+      }
+
+      .microseconds-help-close{
+        position:absolute;
+        top:6px;
+        right:8px;
+        border:0;
+        background:transparent;
+        color:#123047;
+        font-size:24px;
+        line-height:1;
+        cursor:pointer;
+      }
+
+      .microseconds-help span{
+        font-size:17px;
+        line-height:1.4;
+      }
+
+      .microseconds-help strong{
+        font-size:19px;
+        line-height:1.3;
+      }
+
+      .microseconds-power{
+        color:#b42318;
+        font-size:24px !important;
+        font-weight:800;
+      }
+
+      .microseconds-exponent{
+        position:relative;
+        top:-.48em;
+        display:inline-block;
+        margin-left:1px;
+        font-size:.78em;
+        line-height:1;
+        font-weight:900;
+        letter-spacing:0;
       }
 
       .controls{
@@ -1540,6 +2285,15 @@ return (
         flex-direction:column;
         gap:10px;
         margin-top:12px;
+      }
+
+      .challenge-lower-task .controls{
+        order:-1;
+        margin:0 0 12px;
+      }
+
+      .challenge-lower-task .challenge-info{
+        margin-top:24px;
       }
 
       .button-row{
@@ -1619,7 +2373,6 @@ return (
 
     `}</style>
 
-  </div>
 </div>
 )}
 
@@ -2055,7 +2808,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
   const [mothPosition, setMothPosition] = useState({ x: 720, y: BAT_SOURCE_Y })
   const [simulationMoth, setSimulationMoth] = useState({ x: 720, y: BAT_SOURCE_Y })
   const [draggingMoth, setDraggingMoth] = useState(false)
-  const [soundSpeed, setSoundSpeed] = useState(1)
+  const [soundSpeed, setSoundSpeed] = useState(2)
   const [paused, setPaused] = useState(false)
   const [binaural, setBinaural] = useState(false)
   const [squeakActive, setSqueakActive] = useState(false)
@@ -2465,14 +3218,16 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
             <path
               className="bat-wing bat-wing-upper"
               transform="translate(20 0)"
-              d="M-43,-11 C-53,-24 -65,-43 -72,-60 C-67,-96 -58,-132 -48,-164 C-81,-162 -106,-148 -124,-126 Q-101,-108 -151,-83 Q-113,-65 -153,-44 Q-108,-34 -76,-17 Q-57,-7 -43,-11 Z"
+              d="M-43,-11 C-53,-24 -65,-43 -72,-60 C-67,-96 -58,-132 -48,-164 C-81,-162 -106,-148 -124,-126 Q-101,-108 -151,-83 Q-113,-65 -153,-44 Q-108,-34 -94,-18 Q-62,-7 -43,-11 Z"
             />
             <path
               className="bat-wing bat-wing-lower"
               transform="translate(20 0)"
-              d="M-43,11 C-53,24 -65,43 -72,60 C-67,96 -58,132 -48,164 C-81,162 -106,148 -124,126 Q-101,108 -151,83 Q-113,65 -153,44 Q-108,34 -76,17 Q-57,7 -43,11 Z"
+              d="M-43,11 C-53,24 -65,43 -72,60 C-67,96 -58,132 -48,164 C-81,162 -106,148 -124,126 Q-101,108 -151,83 Q-113,65 -153,44 Q-108,34 -94,18 Q-62,7 -43,11 Z"
             />
             <path className="bat-tail" d="M-104,-9 L-145,0 L-104,9 Q-116,0 -104,-9 Z" />
+            <path className="bat-leg" d="M-96,-13 Q-116,-18 -132,-29 M-132,-29 L-143,-29 M-132,-29 L-139,-36" />
+            <path className="bat-leg" d="M-96,13 Q-116,18 -132,29 M-132,29 L-143,29 M-132,29 L-139,36" />
             <ellipse className="bat-body" cx="-70" cy="0" rx="43" ry="24" />
             <ellipse className="bat-neck" cx="-39" cy="0" rx="25" ry="20" />
             <path className="bat-head" d="M-45,0 C-43,-18 -31,-25 -15,-22 C0,-19 9,-9 12,0 C9,9 0,19 -15,22 C-31,25 -43,18 -45,0 Z" />
@@ -2492,7 +3247,13 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
             <path className="bat-nose" d="M7,-3.5 L13,0 L7,3.5 Z" />
             <path className="bat-mouth" d="M7,-4 Q10,0 7,4" />
           </g>
-          <text className="bat-object-label" x={BAT_SOURCE_X - 110} y="423">BAT</text>
+          <text
+            className="bat-object-label"
+            x={BAT_SOURCE_X + 8}
+            y={BAT_SOURCE_Y + 52}
+          >
+            BAT
+          </text>
 
           <g className="bat-insect" transform={`translate(${insectX} ${insectY}) rotate(${reflectorRotation})`}>
             <circle className="bat-insect-hit-target" cx="0" cy="0" r="46" />
@@ -2560,17 +3321,16 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
         >
           Take the quiz
         </button>
-        <p className="bat-keyboard-hint">Space: squeak · Arrow keys: move moth</p>
+        <p className="bat-keyboard-hint">
+          <span><kbd>Space</kbd>: squeak</span>
+          <span><kbd>Arrow keys</kbd>: move moth</span>
+        </p>
         <div className={`bat-phase bat-phase-${phase.toLowerCase().replaceAll(' ', '-')}`} aria-live="polite">
           <span className="bat-phase-dot" />
           {phase}
         </div>
         </section>
       </div>
-
-      <p className="bat-explanation">
-        The bat does not “see” a graph. Its brain measures the time between the squeak and its echo—the same basic idea used by an ultrasound detector.
-      </p>
 
       {quizOpen && (
         <div
@@ -2707,6 +3467,13 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           fill:#111925;
           stroke:#536277;
           stroke-width:1.1;
+          stroke-linejoin:round;
+        }
+        .bat-leg{
+          fill:none;
+          stroke:#64748b;
+          stroke-width:4.5;
+          stroke-linecap:round;
           stroke-linejoin:round;
         }
         .bat-eye{ fill:#f4d65e; }
@@ -2861,9 +3628,17 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
         }
 
         .bat-keyboard-hint{
+          display:flex;
+          flex-direction:column;
+          gap:4px;
           color:#8fa0b8;
           font-size:12px;
           line-height:1.45;
+        }
+
+        .bat-keyboard-hint kbd{
+          color:#dbe4f1;
+          font:700 12px/1.45 Arial,sans-serif;
         }
 
         .bat-quiz-button{
@@ -2972,14 +3747,6 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           box-shadow:0 0 10px rgba(245,162,62,.8);
         }
 
-        .bat-explanation{
-          max-width:1100px;
-          margin:10px auto 0;
-          color:#aebbd0;
-          text-align:center;
-          font-size:15px;
-        }
-
         @media (max-width:900px){
           .bat-echo-screen{ width:min(100% - 20px, 1550px); padding-top:12px; }
           .bat-echo-header{ grid-template-columns:auto minmax(0, 260px); align-items:start; }
@@ -3008,9 +3775,26 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
 }
 
 export default function App() {
-  const [screen, setScreen] = useState<'testing' | 'bat'>('testing')
+  const [screen, setScreen] = useState<'home' | 'testing' | 'bat'>('home')
 
-  return screen === 'testing'
-    ? <UltrasoundTestingScreen onNext={() => setScreen('bat')} />
-    : <BatEcholocationScreen onBack={() => setScreen('testing')} />
+  if (screen === 'home') {
+    return (
+      <>
+        <FullscreenButton />
+        <LandingScreen
+          onIndustrialTesting={() => setScreen('testing')}
+          onBatEcholocation={() => setScreen('bat')}
+        />
+      </>
+    )
+  }
+
+  return (
+    <>
+      <FullscreenButton />
+      {screen === 'testing'
+        ? <UltrasoundTestingScreen onNext={() => setScreen('bat')} />
+        : <BatEcholocationScreen onBack={() => setScreen('testing')} />}
+    </>
+  )
 }
