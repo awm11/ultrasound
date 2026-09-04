@@ -58,11 +58,12 @@ const QUESTIONS = [
     tolerance: 0.05,
   },
   {
-    text: "A hiker shouts towards a rock face. The echo returns after 1.2 seconds. How far away is the rock face?",
-    answer: 204,
+    text: "A dolphin sends out a click in salt water. The echo returns from a fish 0.20 seconds later. The speed of sound in salt water is 1500 m/s. How far away is the fish?",
+    answer: 150,
     unit: "m",
     quantity: "distance",
     tolerance: 0.05,
+    speed: 1500,
   },
   {
     text: "An ultrasonic sensor detects a box 1.7 m away. How long does the sound take to travel to the box and back?",
@@ -72,11 +73,11 @@ const QUESTIONS = [
     tolerance: 0.05,
   },
   {
-    text: "A warehouse robot sends out an ultrasonic pulse. The echo returns after 15 ms. How far away is the wall?",
-    answer: 2.55,
-    unit: "m",
-    quantity: "distance",
-    tolerance: 0.005,
+    text: "An ultrasound scan is used to check an athlete’s injured thigh. The pulse travels 7.9 cm into the muscle and the echo returns after 0.10 ms. Calculate the speed of sound in the muscle.",
+    answer: 1580,
+    unit: "m/s",
+    quantity: "speed",
+    tolerance: 0.5,
   },
   {
     text: "A parking sensor detects a car 0.68 m away. How long does the sound take to travel to the car and back?",
@@ -92,9 +93,9 @@ const WORKING_HELP = [
   { distance: "5.1", time: "time" },
   { distance: "distance", time: "0.025" },
   { distance: "distance", time: "0.8" },
-  { distance: "distance", time: "1.2" },
+  { distance: "distance", speed: "1500", time: "0.20" },
   { distance: "1.7", time: "time" },
-  { distance: "distance", time: "0.015" },
+  { distance: "0.079", speed: "speed", time: "0.00010" },
   { distance: "0.68", time: "time" },
 ];
 
@@ -162,6 +163,7 @@ function normalizeUnit(unit) {
 function parseAnswerQuantity(raw, question, unitRequired) {
   const normalized = String(raw ?? "")
     .trim()
+    .replace(/\s+/g, "")
     .replace(/−/g, "-")
     .replace(/,/g, ".");
   const match = normalized.match(
@@ -331,7 +333,6 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   const workSideRef = useRef(null);
   const swapButtonRef = useRef(null);
   const answerInputRef = useRef(null);
-  const unitInputRef = useRef(null);
   const answerInkSurfaceRef = useRef(null);
   const answerInkCanvasRef = useRef(null);
   const answerInkStrokesRef = useRef(session.answerInkStrokes);
@@ -445,7 +446,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
         [
           { text: helpValues.distance, quantity: "distance" },
           { text: " = ½ × " },
-          { text: "340", quantity: "speed" },
+          { text: helpValues.speed ?? "340", quantity: "speed" },
           { text: " × " },
           { text: helpValues.time, quantity: "time" },
         ],
@@ -922,10 +923,6 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     [currentIndex]
   );
 
-  const handleUnitChange = (event) => {
-    setCurrentUnitValue(event.target.value.replace(/[^a-zA-Z/]/g, ""));
-  };
-
   const handleTypeAnswer = () => {
     if (answerInkTimerRef.current) {
       window.clearTimeout(answerInkTimerRef.current);
@@ -968,7 +965,6 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
 
   const handleWriteAnswer = () => {
     answerInputRef.current?.blur();
-    unitInputRef.current?.blur();
     const recognised = recognisedAnswers[currentIndex];
     if (recognised) setCurrentAnswerValue(recognised);
     const recognisedUnit = recognisedUnits[currentIndex];
@@ -1021,8 +1017,15 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
       else rawUnit = recognisedUnits[currentIndex].trim();
     }
 
+    const answerText =
+      answerEntryMode === "type"
+        ? rawNumber
+        : answerUnitRequired
+          ? `${rawNumber} ${rawUnit}`
+          : rawNumber;
+
     const parsedAnswer = parseAnswerQuantity(
-      answerUnitRequired ? `${rawNumber} ${rawUnit}` : rawNumber,
+      answerText,
       currentQuestion,
       answerUnitRequired
     );
@@ -1030,7 +1033,9 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     if (parsedAnswer.error) {
       const errorText =
         parsedAnswer.error === "missing-unit"
-          ? "Write a unit in the unit box before checking."
+          ? answerEntryMode === "write"
+            ? "Write a unit in the unit box before checking."
+            : "Include a unit in your answer before checking."
           : parsedAnswer.error === "wrong-unit"
             ? "Check the unit."
             : answerEntryMode === "write"
@@ -1212,9 +1217,9 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
       .replace(/\s+/g, "")
       .replace(/,/g, ".");
 
-    if (/^\d{1,3}(?:\.\d{1,2})?$/.test(cleaned)) return cleaned;
+    if (/^\d{1,4}(?:\.\d{1,2})?$/.test(cleaned)) return cleaned;
 
-    const match = cleaned.match(/\d{1,3}(?:\.\d{1,2})?/);
+    const match = cleaned.match(/\d{1,4}(?:\.\d{1,2})?/);
     return match ? match[0] : "";
   };
 
@@ -1782,8 +1787,8 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
               <div className="batQuiz__formulaGroup">
                 <div className="batQuiz__eyebrow">Echo calculations</div>
                 <div
-                  className={`batQuiz__formula ${currentIndex >= 4 ? "is-hidden" : ""}`}
-                  aria-hidden={currentIndex >= 4}
+                  className={`batQuiz__formula ${currentIndex >= 3 ? "is-hidden" : ""}`}
+                  aria-hidden={currentIndex >= 3}
                 >
                   distance = ½ × speed × time
                 </div>
@@ -1791,7 +1796,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
 
               <div className="batQuiz__topMeta">
                 <div className="batQuiz__speed">
-                  Speed of sound = <strong>340 m/s</strong>
+                  Speed of sound = <strong>{currentQuestion.quantity === "speed" ? "?" : `${currentQuestion.speed ?? 340} m/s`}</strong>
                 </div>
                 <div className="batQuiz__progress">
                   Question {currentIndex + 1} of {QUESTIONS.length}
@@ -1827,7 +1832,11 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
                   >
                     <div className="batQuiz__answerLabel">Your answer</div>
 
-                    <div className={`batQuiz__answerRow ${answerUnitRequired ? "has-unit-entry" : ""}`}>
+                    <div
+                      className={`batQuiz__answerRow ${
+                        answerEntryMode === "write" && answerUnitRequired ? "has-unit-entry" : ""
+                      }`}
+                    >
                       {answerEntryMode === "write" ? (
                         <>
                           <div
@@ -1880,44 +1889,26 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
                           )}
                         </>
                       ) : (
-                        <>
-                          <input
-                            ref={answerInputRef}
-                            id="bat-quiz-answer"
-                            className="batQuiz__answerInput batQuiz__answerInput--number"
-                            type="text"
-                            inputMode={answerUnitRequired ? "decimal" : "none"}
-                            enterKeyHint="done"
-                            autoComplete="off"
-                            autoCapitalize="off"
-                            autoCorrect="off"
-                            spellCheck={false}
-                            placeholder="Type a number"
-                            aria-label={`Type your numerical answer${answerUnitRequired ? "" : ` in ${currentQuestion.unit}`}`}
-                            value={answers[currentIndex]}
-                            onChange={handleAnswerChange}
-                          />
-                          {answerUnitRequired ? (
-                            <input
-                              ref={unitInputRef}
-                              className="batQuiz__answerInput batQuiz__answerInput--unit"
-                              type="text"
-                              inputMode="text"
-                              enterKeyHint="done"
-                              autoComplete="off"
-                              autoCapitalize="off"
-                              autoCorrect="off"
-                              spellCheck={false}
-                              maxLength={3}
-                              placeholder="Unit"
-                              aria-label={`Type the unit. Recognised units are ${RECOGNISABLE_UNITS.join(", ")}`}
-                              value={units[currentIndex]}
-                              onChange={handleUnitChange}
-                            />
-                          ) : (
-                            <div className="batQuiz__unit">{currentQuestion.unit}</div>
-                          )}
-                        </>
+                        <input
+                          ref={answerInputRef}
+                          id="bat-quiz-answer"
+                          className="batQuiz__answerInput"
+                          type="text"
+                          inputMode="text"
+                          enterKeyHint="done"
+                          autoComplete="off"
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          placeholder={answerUnitRequired ? "Type number and unit" : "Type your answer"}
+                          aria-label={
+                            answerUnitRequired
+                              ? "Type your answer including the unit"
+                              : `Type your answer in ${currentQuestion.unit}`
+                          }
+                          value={answers[currentIndex]}
+                          onChange={handleAnswerChange}
+                        />
                       )}
                     </div>
 
@@ -2021,10 +2012,15 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
                       <button
                         type="button"
                         className="batQuiz__stuckButton"
+                        style={{
+                          backgroundColor: "#4F46E5",
+                          borderColor: "#3730A3",
+                          color: "#FFFFFF",
+                        }}
                         aria-pressed={workingHelpShown[currentIndex]}
                         onClick={handleShowWorkingHelp}
                       >
-                        I’m completely stuck
+                        Help me get started
                       </button>
                     ) : null}
 

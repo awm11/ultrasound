@@ -335,7 +335,7 @@ export async function recogniseNumberWithOnnx(strokes, fieldWidth, fieldHeight) 
   }
 
   const text = pieces.join("");
-  const numericPattern = /^\d{1,3}(?:\.\d{1,2})?$/;
+  const numericPattern = /^\d{1,4}(?:\.\d{1,2})?$/;
   const confidence = confidences.length
     ? confidences.reduce((sum, value) => sum + value, 0) / confidences.length
     : 0;

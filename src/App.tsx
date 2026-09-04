@@ -80,7 +80,10 @@ function FullscreenButton() {
       <button
         type="button"
         className="fullscreen-button"
-        onClick={toggleFullscreen}
+        onClick={(event) => {
+          void toggleFullscreen()
+          event.currentTarget.blur()
+        }}
         disabled={!fullscreenAvailable}
         aria-label={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
         title={isFullscreen ? 'Exit full screen' : 'Full screen'}
@@ -113,6 +116,8 @@ function FullscreenButton() {
           box-shadow:0 7px 22px rgba(0,0,0,.38);
           cursor:pointer;
           backdrop-filter:blur(8px);
+          user-select:none;
+          -webkit-user-select:none;
         }
         .fullscreen-button:hover{
           background:#185069;
@@ -784,7 +789,7 @@ function UltrasoundTestingScreen({ onNext }: { onNext: () => void }) {
       setGuessFeedback("✓ Good job! Closer than a bat's whisker.")
     } 
     else if (distance < 50) {
-      setGuessFeedback("🔎 Not bad! We'll make an inspector of you yet.")
+      setGuessFeedback("Not bad! We'll make an inspector of you yet.")
     } 
     else {
       setGuessFeedback("Hmmm...you might want to recheck your calculations?")
@@ -1495,6 +1500,7 @@ return (
             {guessDistance !== null && guessXRef.current && (
               <div className="feedback-panel">
                 <div>
+                  <span className="feedback-icon" aria-hidden="true">🔎</span>
                   <strong>Distance from defect centre:</strong> {(guessDistance/14).toFixed(1)} cm
                 </div>
                 <div>{guessFeedback}</div>
@@ -2098,15 +2104,26 @@ return (
 
       .feedback-panel{
         box-sizing:border-box;
-        width:100%;
-        margin-top:0;
-        padding:10px 20px;
+        width:min(430px, calc(100% - 40px));
+        margin:0 auto;
+        padding:8px 14px;
         border-radius:8px;
         background: #f8fafc;
         border:1px solid #cbd5e1;
         color:#1f2937;
         font-weight:600;
-        text-align:left;
+        line-height:1.35;
+        text-align:center;
+        display:grid;
+        gap:4px;
+      }
+
+      .feedback-icon{
+        display:inline-block;
+        margin-right:4px;
+        font-size:1.5em;
+        line-height:0;
+        vertical-align:-0.12em;
       }
 
       .challenge-workspace{
