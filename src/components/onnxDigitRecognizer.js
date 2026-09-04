@@ -154,6 +154,74 @@ function groupCharacters(strokes, fieldHeight) {
   return tokens.sort((a, b) => a.x - b.x);
 }
 
+function looksLikeOpenFour(token) {
+  if (!token?.box || token.strokes.length < 2) return false;
+
+  const tokenWidth = Math.max(1, token.box.maxX - token.box.minX);
+  const tokenHeight = Math.max(1, token.box.maxY - token.box.minY);
+
+  return token.strokes.some((verticalStroke) => {
+    const verticalBox = strokeBounds(verticalStroke);
+    if (!verticalBox || verticalStroke.points.length < 2) return false;
+
+    const verticalWidth = verticalBox.maxX - verticalBox.minX;
+    const verticalHeight = verticalBox.maxY - verticalBox.minY;
+    const first = verticalStroke.points[0];
+    const last = verticalStroke.points[verticalStroke.points.length - 1];
+    const directDistance = Math.hypot(last.x - first.x, last.y - first.y);
+    const directness = directDistance / Math.max(pathLength(verticalStroke), 1);
+
+    const isLongVertical =
+      verticalHeight >= tokenHeight * 0.52 &&
+      verticalWidth <= Math.max(5, tokenWidth * 0.24) &&
+      Math.abs(last.y - first.y) >= Math.abs(last.x - first.x) * 2.5 &&
+      directness >= 0.72;
+    if (!isLongVertical) return false;
+
+    const verticalX =
+      verticalStroke.points.reduce((sum, point) => sum + point.x, 0) /
+      verticalStroke.points.length;
+
+    return token.strokes.some((barStroke) => {
+      if (barStroke === verticalStroke || barStroke.points.length < 3) return false;
+
+      const middlePoints = barStroke.points.filter(
+        (point) =>
+          point.y > verticalBox.minY + verticalHeight * 0.12 &&
+          point.y < verticalBox.maxY - verticalHeight * 0.12
+      );
+      if (!middlePoints.length) return false;
+
+      const crossingPoint = middlePoints.reduce((nearest, point) =>
+        Math.abs(point.x - verticalX) < Math.abs(nearest.x - verticalX)
+          ? point
+          : nearest
+      );
+      if (Math.abs(crossingPoint.x - verticalX) > tokenWidth * 0.12) return false;
+
+      const bandHalfHeight = tokenHeight * 0.12;
+      const barPoints = barStroke.points.filter(
+        (point) => Math.abs(point.y - crossingPoint.y) <= bandHalfHeight
+      );
+      if (barPoints.length < 2) return false;
+
+      const barMinX = Math.min(...barPoints.map((point) => point.x));
+      const barMaxX = Math.max(...barPoints.map((point) => point.x));
+      const crossesVertical =
+        barMinX < verticalX - tokenWidth * 0.1 &&
+        barMaxX > verticalX + tokenWidth * 0.08 &&
+        barMaxX - barMinX >= tokenWidth * 0.42;
+      const hasRaisedArm = barStroke.points.some(
+        (point) =>
+          point.y < crossingPoint.y - tokenHeight * 0.22 &&
+          point.x < verticalX - tokenWidth * 0.04
+      );
+
+      return crossesVertical && hasRaisedArm;
+    });
+  });
+}
+
 function rasterizeDigit(token) {
   // Draw at high resolution first, then downsample to the model's 8×8 input.
   // The model was trained on centred grayscale handwriting with this geometry.
@@ -252,8 +320,9 @@ export async function recogniseNumberWithOnnx(strokes, fieldWidth, fieldHeight) 
         continue;
       }
       const result = await classifyDigit(rasterizeDigit(token));
-      pieces.push(result.digit);
-      confidences.push(result.confidence);
+      const openFourCorrection = result.digit === "5" && looksLikeOpenFour(token);
+      pieces.push(openFourCorrection ? "4" : result.digit);
+      confidences.push(openFourCorrection ? Math.max(0.86, result.confidence) : result.confidence);
     }
   } catch (error) {
     return {

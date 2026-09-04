@@ -8,6 +8,18 @@ type WorkStroke = {
   points: { x: number; y: number }[]
 }
 
+type PointerSample = Pick<PointerEvent, 'clientX' | 'clientY'>
+
+function getCoalescedPointerSamples(
+  event: ReactPointerEvent<HTMLCanvasElement>,
+): PointerSample[] {
+  const nativeEvent = event.nativeEvent as PointerEvent & {
+    getCoalescedEvents?: () => PointerEvent[]
+  }
+  const samples = nativeEvent.getCoalescedEvents?.() ?? []
+  return samples.length ? samples : [nativeEvent]
+}
+
 function PageSwitcher({
   active,
   onIndustrialTesting,
@@ -137,7 +149,6 @@ function LandingScreen({
   return (
     <main className="launch-screen">
       <header className="launch-header">
-        <div className="launch-mark" aria-hidden="true">U</div>
         <div>
           <h1>Ultrasound</h1>
           <p>Choose an investigation</p>
@@ -182,10 +193,18 @@ function LandingScreen({
       </div>
 
       <style>{`
+        #root{
+          width:100%;
+          max-width:none;
+          margin:0;
+          border-inline:0;
+        }
         .launch-screen{
           box-sizing:border-box;
           width:100%;
           min-height:100svh;
+          min-height:100dvh;
+          flex:1;
           display:flex;
           flex-direction:column;
           align-items:center;
@@ -204,19 +223,6 @@ function LandingScreen({
           align-items:center;
           gap:18px;
           text-align:left;
-        }
-        .launch-mark{
-          width:76px;
-          height:76px;
-          display:grid;
-          place-items:center;
-          border:5px solid white;
-          border-radius:50%;
-          color:white;
-          background:#1976b9;
-          box-shadow:0 6px 0 #0c568e,0 10px 24px rgba(12,86,142,.28);
-          font-size:45px;
-          font-weight:900;
         }
         .launch-header h1{
           margin:0;
@@ -292,7 +298,6 @@ function LandingScreen({
         .launch-card-label small{ font-size:14px;opacity:.9; }
         @media(max-width:700px){
           .launch-screen{ justify-content:flex-start;gap:30px;padding-top:28px; }
-          .launch-mark{ width:58px;height:58px;font-size:34px; }
           .launch-grid{ grid-template-columns:minmax(240px,330px);gap:24px; }
         }
       `}</style>
@@ -906,7 +911,7 @@ function handleTraceMove(e: React.MouseEvent<SVGSVGElement>) {
     })
   }
 
-  function getChallengeWorkPoint(event: ReactPointerEvent<HTMLCanvasElement>) {
+  function getChallengeWorkPoint(event: PointerSample) {
     const canvas = challengeWorkCanvasRef.current
     if (!canvas) return { x: 0, y: 0 }
 
@@ -941,7 +946,8 @@ function handleTraceMove(e: React.MouseEvent<SVGSVGElement>) {
     if (!challengeWorkDrawingRef.current || !challengeWorkActiveStrokeRef.current) return
 
     event.preventDefault()
-    challengeWorkActiveStrokeRef.current.points.push(getChallengeWorkPoint(event))
+    const points = getCoalescedPointerSamples(event).map(getChallengeWorkPoint)
+    challengeWorkActiveStrokeRef.current.points.push(...points)
     redrawChallengeWorkspace()
   }
 
@@ -1473,23 +1479,43 @@ return (
         />
 
         <div className={`simulation-lower ${challengeMode ? 'challenge-lower-task' : ''}`}>
-        {challengeMode && guessDistance === null && (
-          <div className={`challenge-info ${challengePromptFlash ? 'is-pulsing' : ''}`}>
-            <h2>Hidden Defect Challenge</h2>
-            <p>
-              Use the probe to locate the hidden defect.<br />
-              Click on the steel to mark the defect location, then click "Reveal answer" to see how close you were.<br />
-              The speed of sound in steel is 5890 m/s.
-            </p>
-          </div>
-        )}
+        {challengeMode && (
+          <div className="challenge-guidance">
+            {guessDistance === null && (
+              <div className={`challenge-info ${challengePromptFlash ? 'is-pulsing' : ''}`}>
+                <h2>Hidden Defect Challenge</h2>
+                <p>
+                  Use the probe to locate the hidden defect.<br />
+                  Click on the steel to mark the defect location, then click "Reveal answer" to see how close you were.<br />
+                  The speed of sound in steel is 5890 m/s.
+                </p>
+              </div>
+            )}
 
-        {guessDistance !== null && guessXRef.current && (
-          <div className="feedback-panel">
-            <div>
-              <strong>Distance from defect centre:</strong> {(guessDistance/14).toFixed(1)} cm
-            </div>
-            <div>{guessFeedback}</div>
+            {guessDistance !== null && guessXRef.current && (
+              <div className="feedback-panel">
+                <div>
+                  <strong>Distance from defect centre:</strong> {(guessDistance/14).toFixed(1)} cm
+                </div>
+                <div>{guessFeedback}</div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="industrial-swap"
+              aria-label="Swap the lower challenge panels"
+              aria-pressed={challengeSwapped}
+              title="Swap sides"
+              onClick={() => setChallengeSwapped((value) => !value)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 7h11" />
+                <path d="m15 4 3 3-3 3" />
+                <path d="M17 17H6" />
+                <path d="m9 14-3 3 3 3" />
+              </svg>
+            </button>
           </div>
         )}
 
@@ -1782,24 +1808,6 @@ return (
 
       </div>
 
-      {challengeMode && (
-        <button
-          type="button"
-          className="industrial-swap"
-          aria-label="Swap the lower challenge panels"
-          aria-pressed={challengeSwapped}
-          title="Swap sides"
-          onClick={() => setChallengeSwapped((value) => !value)}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 7h11" />
-            <path d="m15 4 3 3-3 3" />
-            <path d="M17 17H6" />
-            <path d="m9 14-3 3 3 3" />
-          </svg>
-        </button>
-      )}
-
     </div>
 
     {!challengeMode && (
@@ -1939,7 +1947,7 @@ return (
       .top-row.is-challenge{
         display:grid;
         grid-template-columns:700px 850px;
-        grid-template-rows:auto auto;
+        grid-template-rows:auto auto auto;
         column-gap:30px;
         row-gap:16px;
       }
@@ -1974,38 +1982,49 @@ return (
       }
 
       .challenge-lower-task{
+        display:contents;
+      }
+
+      .top-row.is-challenge .challenge-lower-task .controls{
         grid-column:1;
         grid-row:2;
         width:700px;
-        min-width:0;
-        display:flex;
-        flex-direction:column;
+        box-sizing:border-box;
+      }
+
+      .top-row.is-challenge .challenge-guidance{
+        grid-column:1;
+        grid-row:3;
+        width:700px;
+        position:relative;
+        margin-top:24px;
       }
 
       .top-row.is-challenge .challenge-workspace{
         grid-column:2;
-        grid-row:2;
+        grid-row:2 / span 2;
         width:850px;
       }
 
-      .top-row.is-lower-swapped .challenge-lower-task{
+      .top-row.is-lower-swapped .challenge-guidance{
         grid-column:1 / 3;
+        grid-row:2 / span 2;
         justify-self:end;
+        align-self:center;
+        margin-top:0;
       }
 
       .top-row.is-lower-swapped .challenge-workspace{
         grid-column:1 / 3;
+        grid-row:3;
         justify-self:start;
-      }
-
-      .top-row.is-lower-swapped .industrial-swap{
-        left:865px;
+        margin-top:-8px;
       }
 
       .industrial-swap{
         position:absolute;
-        top:704px;
-        left:715px;
+        top:50%;
+        left:calc(100% + 15px);
         z-index:10;
         width:52px;
         height:52px;
@@ -2020,6 +2039,10 @@ return (
         box-shadow:0 4px 12px rgba(0,0,0,.38),0 0 0 3px rgba(106,49,18,.55);
         color:#fff;
         cursor:pointer;
+      }
+
+      .top-row.is-lower-swapped .industrial-swap{
+        left:-15px;
       }
 
       .industrial-swap:hover{
@@ -2290,10 +2313,6 @@ return (
       .challenge-lower-task .controls{
         order:-1;
         margin:0 0 12px;
-      }
-
-      .challenge-lower-task .challenge-info{
-        margin-top:24px;
       }
 
       .button-row{
@@ -2802,15 +2821,21 @@ function BatWaveField({
 function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
   const sceneRef = useRef<SVGSVGElement>(null)
   const quizPanelRef = useRef<HTMLDivElement>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
   const mothPositionRef = useRef({ x: 720, y: BAT_SOURCE_Y })
   const draggingMothRef = useRef(false)
   const quizOpenRef = useRef(false)
+  const squeakMutedRef = useRef(false)
+  const binauralFlashTimerRef = useRef<number | null>(null)
+  const binauralFlashFrameRef = useRef<number | null>(null)
   const [mothPosition, setMothPosition] = useState({ x: 720, y: BAT_SOURCE_Y })
   const [simulationMoth, setSimulationMoth] = useState({ x: 720, y: BAT_SOURCE_Y })
   const [draggingMoth, setDraggingMoth] = useState(false)
   const [soundSpeed, setSoundSpeed] = useState(2)
   const [paused, setPaused] = useState(false)
   const [binaural, setBinaural] = useState(false)
+  const [binauralHotkeyFlash, setBinauralHotkeyFlash] = useState(false)
+  const [squeakMuted, setSqueakMuted] = useState(false)
   const [squeakActive, setSqueakActive] = useState(false)
   const [runId, setRunId] = useState(0)
   const [phase, setPhase] = useState('Ready')
@@ -2833,7 +2858,53 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
     * (BAT_GRAPH_RIGHT - BAT_GRAPH_LEFT)
   )
 
+  function playBatSqueak() {
+    if (squeakMutedRef.current) return
+
+    const AudioContextConstructor = window.AudioContext
+      ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioContextConstructor) return
+
+    const audioContext = audioContextRef.current ?? new AudioContextConstructor()
+    audioContextRef.current = audioContext
+
+    const playChirp = () => {
+      const startTime = audioContext.currentTime
+      const duration = 0.085
+      const gain = audioContext.createGain()
+      const mainTone = audioContext.createOscillator()
+      const overtone = audioContext.createOscillator()
+
+      mainTone.type = 'sine'
+      mainTone.frequency.setValueAtTime(5600, startTime)
+      mainTone.frequency.exponentialRampToValueAtTime(2300, startTime + duration)
+
+      overtone.type = 'triangle'
+      overtone.frequency.setValueAtTime(8200, startTime)
+      overtone.frequency.exponentialRampToValueAtTime(3700, startTime + duration)
+
+      gain.gain.setValueAtTime(0.0001, startTime)
+      gain.gain.exponentialRampToValueAtTime(0.1125, startTime + 0.004)
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration)
+
+      mainTone.connect(gain)
+      overtone.connect(gain)
+      gain.connect(audioContext.destination)
+      mainTone.start(startTime)
+      overtone.start(startTime)
+      mainTone.stop(startTime + duration)
+      overtone.stop(startTime + duration)
+    }
+
+    if (audioContext.state === 'suspended') {
+      void audioContext.resume().then(playChirp).catch(() => undefined)
+    } else {
+      playChirp()
+    }
+  }
+
   function sendSqueak() {
+    playBatSqueak()
     setSimulationMoth(mothPositionRef.current)
     setPhase('Emitting squeak')
     setBrainTrace({ primary: [], secondary: [] })
@@ -2842,12 +2913,36 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
     setRunId((id) => id + 1)
   }
 
+  function toggleSqueakMute() {
+    squeakMutedRef.current = !squeakMutedRef.current
+    setSqueakMuted(squeakMutedRef.current)
+  }
+
   function toggleBinauralHearing() {
     setBinaural((isBinaural) => !isBinaural)
     setBrainTrace({ primary: [], secondary: [] })
     setPhase('Ready')
     setPaused(false)
     setSqueakActive(false)
+  }
+
+  function flashBinauralControl() {
+    if (binauralFlashFrameRef.current !== null) {
+      cancelAnimationFrame(binauralFlashFrameRef.current)
+    }
+    if (binauralFlashTimerRef.current !== null) {
+      window.clearTimeout(binauralFlashTimerRef.current)
+    }
+
+    setBinauralHotkeyFlash(false)
+    binauralFlashFrameRef.current = requestAnimationFrame(() => {
+      setBinauralHotkeyFlash(true)
+      binauralFlashFrameRef.current = null
+      binauralFlashTimerRef.current = window.setTimeout(() => {
+        setBinauralHotkeyFlash(false)
+        binauralFlashTimerRef.current = null
+      }, 650)
+    })
   }
 
   function openQuiz() {
@@ -2861,6 +2956,20 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
     setQuizShowingReward(false)
     setQuizOpen(false)
   }
+
+  useEffect(() => {
+    return () => {
+      const audioContext = audioContextRef.current
+      audioContextRef.current = null
+      if (audioContext && audioContext.state !== 'closed') void audioContext.close()
+      if (binauralFlashFrameRef.current !== null) {
+        cancelAnimationFrame(binauralFlashFrameRef.current)
+      }
+      if (binauralFlashTimerRef.current !== null) {
+        window.clearTimeout(binauralFlashTimerRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (!quizOpen) return
@@ -2917,6 +3026,14 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
         velocityY = 0
         wasMoving = false
         sendSqueak()
+        return
+      }
+
+      if (event.code === 'KeyB') {
+        if (event.repeat) return
+        event.preventDefault()
+        toggleBinauralHearing()
+        flashBinauralControl()
         return
       }
 
@@ -3071,6 +3188,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
     draggingMothRef.current = false
     setDraggingMoth(false)
     setSimulationMoth(mothPositionRef.current)
+    playBatSqueak()
     setPhase('Emitting squeak')
     setPaused(false)
     setSqueakActive(true)
@@ -3083,7 +3201,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
   return (
     <main className="bat-echo-screen">
       <header className="bat-echo-header">
-        <div className="bat-screen-number" aria-label="Screen 2">02</div>
+        <div aria-hidden="true" />
         <div className="bat-echo-heading">
           <span>How ultrasound works in nature</span>
           <h1>A bat builds a picture from echoes</h1>
@@ -3272,9 +3390,24 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
         </section>
 
         <section className="bat-controls" aria-label="Echolocation controls">
-        <button className="bat-send-button" type="button" onClick={sendSqueak}>
-          🔊 Send a squeak
-        </button>
+        <div className="bat-sound-buttons">
+          <button className="bat-send-button" type="button" onClick={sendSqueak}>
+            🔊 Send a squeak
+          </button>
+          <button
+            className="bat-mute-button"
+            type="button"
+            aria-label={squeakMuted ? 'Unmute squeak' : 'Mute squeak'}
+            aria-pressed={squeakMuted}
+            title={squeakMuted ? 'Unmute squeak' : 'Mute squeak'}
+            onClick={(event) => {
+              toggleSqueakMute()
+              event.currentTarget.blur()
+            }}
+          >
+            {squeakMuted ? '🔇' : '🔊'}
+          </button>
+        </div>
         <button
           className="bat-pause-button"
           type="button"
@@ -3300,7 +3433,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
                   onPointerUp={(event) => event.currentTarget.blur()}
           />
         </label>
-        <label className="bat-binaural-control">
+        <label className={`bat-binaural-control ${binauralHotkeyFlash ? 'is-hotkey-flashing' : ''}`}>
           <span>Binaural hearing</span>
           <input
             type="checkbox"
@@ -3324,6 +3457,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
         <p className="bat-keyboard-hint">
           <span><kbd>Space</kbd>: squeak</span>
           <span><kbd>Arrow keys</kbd>: move moth</span>
+          <span><kbd>B</kbd>: binaural hearing</span>
         </p>
         <div className={`bat-phase bat-phase-${phase.toLowerCase().replaceAll(' ', '-')}`} aria-live="polite">
           <span className="bat-phase-dot" />
@@ -3398,13 +3532,6 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           line-height:1.12;
           font-weight:500;
           letter-spacing:-.03em;
-        }
-
-        .bat-screen-number{
-          justify-self:start;
-          color:#8290a6;
-          font-size:24px;
-          font-variant-numeric:tabular-nums;
         }
 
         .bat-demo-layout{
@@ -3523,6 +3650,12 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           background:#171e2a;
         }
 
+        .bat-sound-buttons{
+          display:grid;
+          grid-template-columns:minmax(0,1fr) 44px;
+          gap:10px;
+        }
+
         .bat-send-button{
           min-height:44px;
           border:0;
@@ -3535,6 +3668,22 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           cursor:pointer;
           box-shadow:0 4px 10px rgba(2,132,199,.35);
         }
+
+        .bat-mute-button{
+          width:44px;
+          min-height:44px;
+          border:1px solid #526077;
+          border-radius:8px;
+          padding:0;
+          background:#202a39;
+          color:#eff6ff;
+          font-size:18px;
+          cursor:pointer;
+        }
+
+        .bat-mute-button:hover{ background:#2a374a; }
+        .bat-mute-button[aria-pressed="true"]{ border-color:#31c8ed; background:#12394b; }
+        .bat-mute-button:focus-visible{ outline:2px solid #7dd3fc; outline-offset:2px; }
 
         .bat-pause-button{
           min-height:44px;
@@ -3581,6 +3730,15 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           font-size:13px;
           font-weight:700;
           cursor:pointer;
+        }
+
+        .bat-binaural-control.is-hotkey-flashing{
+          animation:bat-binaural-hotkey-flash .65s ease-out;
+        }
+
+        @keyframes bat-binaural-hotkey-flash{
+          0%,100%{ color:#dbe4f1; box-shadow:0 0 0 0 rgba(49,200,237,0); }
+          35%{ color:#ffffff; box-shadow:0 0 0 7px rgba(49,200,237,.32),0 0 22px rgba(49,200,237,.55); }
         }
 
         .bat-binaural-control input{
@@ -3752,7 +3910,6 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           .bat-echo-header{ grid-template-columns:auto minmax(0, 260px); align-items:start; }
           .bat-echo-header .page-switcher{ grid-column:2; grid-row:1; }
           .bat-echo-heading{ grid-column:1 / -1; grid-row:2; }
-          .bat-screen-number{ grid-column:1; grid-row:1; }
           .bat-demo-layout{ grid-template-columns:1fr; }
           .bat-controls{
             display:grid;
@@ -3765,7 +3922,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           .bat-quiz-button,
           .bat-phase{ grid-column:1 / -1; }
           .bat-phase{ justify-content:center; margin-top:0; }
-          .bat-send-button,
+          .bat-sound-buttons,
           .bat-pause-button{ width:100%; }
         }
 

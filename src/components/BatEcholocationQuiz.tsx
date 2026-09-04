@@ -11,6 +11,10 @@ import {
   recogniseNumberWithOnnx,
   warmOnnxDigitRecognizer,
 } from "./onnxDigitRecognizer";
+import {
+  recogniseUnitWithOnnx,
+  warmOnnxUnitRecognizer,
+} from "./onnxUnitRecognizer";
 
 import bat1 from "../assets/bat_1.jpg";
 import bat2 from "../assets/bat_2.jpg";
@@ -29,57 +33,57 @@ const QUESTIONS = [
     text: "A bat sends an ultrasonic pulse towards a moth. The echo returns 20 ms later. How far away is the moth?",
     answer: 3.4,
     unit: "m",
+    quantity: "distance",
     tolerance: 0.005,
-    hint: "Check your conversion from milliseconds to seconds.",
   },
   {
     text: "A bat detects a beetle 5.1 m away. How long does the sound take to travel to the beetle and back?",
     answer: 30,
     unit: "ms",
+    quantity: "time",
     tolerance: 0.05,
-    hint: "Remember that the time is for the complete journey there and back.",
   },
   {
     text: "A bat receives an echo from a flying insect 25 ms after making its call. How far away is the insect?",
     answer: 4.25,
     unit: "m",
+    quantity: "distance",
     tolerance: 0.005,
-    hint: "Convert the echo time into seconds before calculating.",
   },
   {
     text: "A person shouts towards a cliff. The echo is heard 0.8 seconds later. How far away is the cliff?",
     answer: 136,
     unit: "m",
+    quantity: "distance",
     tolerance: 0.05,
-    hint: "Use the total echo time in the equation.",
   },
   {
     text: "A hiker shouts towards a rock face. The echo returns after 1.2 seconds. How far away is the rock face?",
     answer: 204,
     unit: "m",
+    quantity: "distance",
     tolerance: 0.05,
-    hint: "The sound travels to the rock face and back.",
   },
   {
     text: "An ultrasonic sensor detects a box 1.7 m away. How long does the sound take to travel to the box and back?",
     answer: 10,
     unit: "ms",
+    quantity: "time",
     tolerance: 0.05,
-    hint: "Find the total journey time, then convert seconds to milliseconds.",
   },
   {
     text: "A warehouse robot sends out an ultrasonic pulse. The echo returns after 15 ms. How far away is the wall?",
     answer: 2.55,
     unit: "m",
+    quantity: "distance",
     tolerance: 0.005,
-    hint: "Convert milliseconds to seconds before calculating the distance.",
   },
   {
     text: "A parking sensor detects a car 0.68 m away. How long does the sound take to travel to the car and back?",
     answer: 4,
     unit: "ms",
+    quantity: "time",
     tolerance: 0.05,
-    hint: "Find the total journey time and give your answer in milliseconds.",
   },
 ];
 
@@ -99,6 +103,100 @@ const WORKING_HELP_COLOURS = {
   speed: "#047857",
   time: "#c2410c",
 };
+
+const WORKING_HELP_LEFT_SPACE = 0.65;
+const WORKING_HELP_TOTAL_WIDTH = 1 + WORKING_HELP_LEFT_SPACE;
+
+const UNIT_REQUIRED_FROM_INDEX = 2;
+
+const RECOGNISABLE_UNITS = ["m", "cm", "mm", "km", "s", "ms", "m/s"];
+
+const UNIT_FACTORS = {
+  distance: {
+    m: 1,
+    metre: 1,
+    metres: 1,
+    meter: 1,
+    meters: 1,
+    cm: 1e-2,
+    centimetre: 1e-2,
+    centimetres: 1e-2,
+    centimeter: 1e-2,
+    centimeters: 1e-2,
+    mm: 1e-3,
+    millimetre: 1e-3,
+    millimetres: 1e-3,
+    millimeter: 1e-3,
+    millimeters: 1e-3,
+    km: 1e3,
+    kilometre: 1e3,
+    kilometres: 1e3,
+    kilometer: 1e3,
+    kilometers: 1e3,
+  },
+  time: {
+    s: 1,
+    sec: 1,
+    secs: 1,
+    second: 1,
+    seconds: 1,
+    ms: 1e-3,
+    msec: 1e-3,
+    millisecond: 1e-3,
+    milliseconds: 1e-3,
+  },
+  speed: {
+    "m/s": 1,
+    mps: 1,
+    metrepersecond: 1,
+    metrespersecond: 1,
+    meterpersecond: 1,
+    meterspersecond: 1,
+  },
+};
+
+function normalizeUnit(unit) {
+  return unit.toLowerCase().replace(/μ/g, "µ").replace(/\./g, "");
+}
+
+function parseAnswerQuantity(raw, question, unitRequired) {
+  const normalized = String(raw ?? "")
+    .trim()
+    .replace(/−/g, "-")
+    .replace(/,/g, ".");
+  const match = normalized.match(
+    /^\+?((?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*([a-zA-Z/.]+)?$/
+  );
+
+  if (!match) return { error: "invalid" };
+
+  const value = Number(match[1]);
+  if (!Number.isFinite(value) || value < 0) return { error: "invalid" };
+
+  const unitText = match[2] ? normalizeUnit(match[2]) : "";
+  if (unitRequired && !unitText) return { error: "missing-unit" };
+
+  const factors = UNIT_FACTORS[question.quantity];
+  const canonicalFactor = factors[normalizeUnit(question.unit)];
+  const enteredFactor = unitText ? factors[unitText] : canonicalFactor;
+  if (enteredFactor === undefined) return { error: "wrong-unit" };
+
+  return {
+    valueInBaseUnits: value * enteredFactor,
+    answerInBaseUnits: question.answer * canonicalFactor,
+    toleranceInBaseUnits: question.tolerance * canonicalFactor,
+  };
+}
+
+function getCoalescedPointerSamples(event) {
+  const nativeEvent = event.nativeEvent || event;
+  const samples =
+    typeof nativeEvent.getCoalescedEvents === "function"
+      ? nativeEvent.getCoalescedEvents()
+      : [];
+
+  return samples.length ? samples : [nativeEvent];
+}
 
 // The six facts removed from the original list were 7, 8, 14, 16, 18 and 19.
 const BAT_FACTS = [
@@ -147,6 +245,7 @@ function getSession() {
       rewardPlan: createRewardPlan(),
       currentIndex: 0,
       answers: QUESTIONS.map(() => ""),
+      units: QUESTIONS.map(() => ""),
       checked: QUESTIONS.map(() => false),
       correct: QUESTIONS.map(() => false),
       swapped: false,
@@ -154,7 +253,9 @@ function getSession() {
       seenRewards: [],
       drawings: QUESTIONS.map(() => []),
       answerInkStrokes: QUESTIONS.map(() => []),
+      unitInkStrokes: QUESTIONS.map(() => []),
       recognisedAnswers: QUESTIONS.map(() => ""),
+      recognisedUnits: QUESTIONS.map(() => ""),
       autoShowBatPictures: true,
       wrongAttempts: QUESTIONS.map(() => 0),
       workingHelpShown: QUESTIONS.map(() => false),
@@ -163,6 +264,9 @@ function getSession() {
 
   SESSION_CACHE.wrongAttempts ??= QUESTIONS.map(() => 0);
   SESSION_CACHE.workingHelpShown ??= QUESTIONS.map(() => false);
+  SESSION_CACHE.units ??= QUESTIONS.map(() => "");
+  SESSION_CACHE.unitInkStrokes ??= QUESTIONS.map(() => []);
+  SESSION_CACHE.recognisedUnits ??= QUESTIONS.map(() => "");
 
   return SESSION_CACHE;
 }
@@ -186,6 +290,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
 
   const [currentIndex, setCurrentIndex] = useState(session.currentIndex);
   const [answers, setAnswers] = useState(() => [...session.answers]);
+  const [units, setUnits] = useState(() => [...session.units]);
   const [checked, setChecked] = useState(() => [...session.checked]);
   const [correct, setCorrect] = useState(() => [...session.correct]);
   const [feedback, setFeedback] = useState({ type: "", text: "" });
@@ -195,6 +300,9 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   const [answerEntryMode, setAnswerEntryMode] = useState("write");
   const [recognisedAnswers, setRecognisedAnswers] = useState(() => [
     ...session.recognisedAnswers,
+  ]);
+  const [recognisedUnits, setRecognisedUnits] = useState(() => [
+    ...session.recognisedUnits,
   ]);
   const [autoShowBatPictures, setAutoShowBatPictures] = useState(
     session.autoShowBatPictures
@@ -215,6 +323,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   const currentIndexRef = useRef(session.currentIndex);
   const drawingRef = useRef(false);
   const activeStrokeRef = useRef(null);
+  const helpScrollAnimationRef = useRef(null);
 
   const canvasRef = useRef(null);
   const layoutWrapRef = useRef(null);
@@ -222,6 +331,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   const workSideRef = useRef(null);
   const swapButtonRef = useRef(null);
   const answerInputRef = useRef(null);
+  const unitInputRef = useRef(null);
   const answerInkSurfaceRef = useRef(null);
   const answerInkCanvasRef = useRef(null);
   const answerInkStrokesRef = useRef(session.answerInkStrokes);
@@ -231,8 +341,17 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   const answerInkTimerRef = useRef(null);
   const nativeHandwritingRecognizerRef = useRef(null);
   const answerRecognitionRequestRef = useRef(0);
+  const unitInkSurfaceRef = useRef(null);
+  const unitInkCanvasRef = useRef(null);
+  const unitInkStrokesRef = useRef(session.unitInkStrokes);
+  const unitInkActiveStrokeRef = useRef(null);
+  const unitInkPointerIdRef = useRef(null);
+  const unitInkErasingRef = useRef(false);
+  const unitInkTimerRef = useRef(null);
+  const unitRecognitionRequestRef = useRef(0);
 
   const currentQuestion = QUESTIONS[currentIndex];
+  const answerUnitRequired = currentIndex >= UNIT_REQUIRED_FROM_INDEX;
   const score = useMemo(() => correct.filter(Boolean).length, [correct]);
 
   useEffect(() => {
@@ -245,6 +364,10 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   }, [answers, session]);
 
   useEffect(() => {
+    session.units = units;
+  }, [units, session]);
+
+  useEffect(() => {
     session.checked = checked;
   }, [checked, session]);
 
@@ -255,6 +378,10 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   useEffect(() => {
     session.recognisedAnswers = recognisedAnswers;
   }, [recognisedAnswers, session]);
+
+  useEffect(() => {
+    session.recognisedUnits = recognisedUnits;
+  }, [recognisedUnits, session]);
 
   useEffect(() => {
     session.swapped = swapped;
@@ -301,9 +428,12 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     const helpValues = workingHelpShownRef.current[currentIndexRef.current]
       ? WORKING_HELP[currentIndexRef.current]
       : null;
+    const originalWidth = helpValues
+      ? rect.width / WORKING_HELP_TOTAL_WIDTH
+      : rect.width;
 
     if (helpValues) {
-      const fontSize = Math.max(22, Math.min(32, rect.width * 0.043));
+      let fontSize = Math.max(22, Math.min(32, originalWidth * 0.043));
       const helpLines = [
         [
           { text: "distance", quantity: "distance" },
@@ -325,12 +455,26 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
       ctx.globalCompositeOperation = "source-over";
       ctx.font = `600 ${fontSize}px "Segoe Print", "Comic Sans MS", sans-serif`;
       ctx.textBaseline = "top";
+      const helpAreaWidth = originalWidth * WORKING_HELP_LEFT_SPACE;
+      const widestLine = Math.max(
+        ...helpLines.map((segments) =>
+          segments.reduce(
+            (total, segment) => total + ctx.measureText(segment.text).width,
+            0
+          )
+        )
+      );
+      if (widestLine > helpAreaWidth - 32) {
+        fontSize = Math.max(17, fontSize * ((helpAreaWidth - 32) / widestLine));
+        ctx.font = `600 ${fontSize}px "Segoe Print", "Comic Sans MS", sans-serif`;
+      }
+
       helpLines.forEach((segments, index) => {
         const lineWidth = segments.reduce(
           (total, segment) => total + ctx.measureText(segment.text).width,
           0
         );
-        let x = (rect.width - lineWidth) / 2;
+        let x = (helpAreaWidth - lineWidth) / 2;
         const y = rect.height * 0.08 + index * fontSize * 1.65;
 
         segments.forEach((segment) => {
@@ -358,11 +502,15 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
       ctx.lineJoin = "round";
 
       const first = stroke.points[0];
+      const renderX = (x) =>
+        helpValues
+          ? (WORKING_HELP_LEFT_SPACE + x) * originalWidth
+          : x * rect.width;
 
       if (stroke.points.length === 1) {
         ctx.beginPath();
         ctx.arc(
-          first.x * rect.width,
+          renderX(first.x),
           first.y * rect.height,
           stroke.mode === "erase" ? 12 : 1.5,
           0,
@@ -371,11 +519,11 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
         ctx.fill();
       } else {
         ctx.beginPath();
-        ctx.moveTo(first.x * rect.width, first.y * rect.height);
+        ctx.moveTo(renderX(first.x), first.y * rect.height);
 
         for (let i = 1; i < stroke.points.length; i += 1) {
           const point = stroke.points[i];
-          ctx.lineTo(point.x * rect.width, point.y * rect.height);
+          ctx.lineTo(renderX(point.x), point.y * rect.height);
         }
 
         ctx.stroke();
@@ -430,9 +578,18 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   useLayoutEffect(() => {
     positionSwapButton();
     resizeCanvas();
-  }, [swapped, currentIndex, activeReward, positionSwapButton, resizeCanvas]);
+  }, [
+    swapped,
+    currentIndex,
+    activeReward,
+    workingHelpShown,
+    positionSwapButton,
+    resizeCanvas,
+  ]);
 
   useEffect(() => {
+    if (activeReward !== null) return undefined;
+
     const wrap = layoutWrapRef.current;
     if (!wrap || typeof ResizeObserver === "undefined") return undefined;
 
@@ -443,7 +600,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
 
     observer.observe(wrap);
     return () => observer.disconnect();
-  }, [positionSwapButton, resizeCanvas]);
+  }, [activeReward, positionSwapButton, resizeCanvas]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -513,6 +670,53 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     });
   }, []);
 
+  const redrawUnitInk = useCallback(() => {
+    const surface = unitInkSurfaceRef.current;
+    const canvas = unitInkCanvasRef.current;
+    if (!surface || !canvas) return;
+
+    const rect = surface.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const width = Math.round(rect.width * dpr);
+    const height = Math.round(rect.height * dpr);
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+
+    const context = canvas.getContext("2d");
+    context.save();
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.restore();
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.strokeStyle = "#111827";
+    context.fillStyle = "#111827";
+    context.lineWidth = 3.4;
+    context.lineCap = "round";
+    context.lineJoin = "round";
+
+    const strokes = unitInkStrokesRef.current[currentIndexRef.current] || [];
+    strokes.forEach((stroke) => {
+      if (!stroke.points.length) return;
+      if (stroke.points.length === 1) {
+        const point = stroke.points[0];
+        context.beginPath();
+        context.arc(point.x, point.y, 1.8, 0, Math.PI * 2);
+        context.fill();
+        return;
+      }
+      context.beginPath();
+      context.moveTo(stroke.points[0].x, stroke.points[0].y);
+      for (let index = 1; index < stroke.points.length; index += 1) {
+        context.lineTo(stroke.points[index].x, stroke.points[index].y);
+      }
+      context.stroke();
+    });
+  }, []);
+
   const clearAnswerInk = useCallback(() => {
     if (answerInkTimerRef.current) {
       window.clearTimeout(answerInkTimerRef.current);
@@ -527,7 +731,25 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     redrawAnswerInk();
   }, [redrawAnswerInk, session]);
 
+  const clearUnitInk = useCallback(() => {
+    if (unitInkTimerRef.current) {
+      window.clearTimeout(unitInkTimerRef.current);
+      unitInkTimerRef.current = null;
+    }
+    unitRecognitionRequestRef.current += 1;
+    unitInkStrokesRef.current[currentIndexRef.current] = [];
+    session.unitInkStrokes = unitInkStrokesRef.current;
+    unitInkActiveStrokeRef.current = null;
+    unitInkPointerIdRef.current = null;
+    unitInkErasingRef.current = false;
+    redrawUnitInk();
+  }, [redrawUnitInk, session]);
+
   useEffect(() => {
+    if (helpScrollAnimationRef.current) {
+      window.cancelAnimationFrame(helpScrollAnimationRef.current);
+      helpScrollAnimationRef.current = null;
+    }
     if (answerInkTimerRef.current) {
       window.clearTimeout(answerInkTimerRef.current);
       answerInkTimerRef.current = null;
@@ -535,29 +757,44 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     answerInkActiveStrokeRef.current = null;
     answerInkPointerIdRef.current = null;
     answerInkErasingRef.current = false;
+    if (unitInkTimerRef.current) {
+      window.clearTimeout(unitInkTimerRef.current);
+      unitInkTimerRef.current = null;
+    }
+    unitInkActiveStrokeRef.current = null;
+    unitInkPointerIdRef.current = null;
+    unitInkErasingRef.current = false;
     setAnswerInkMessage("");
     setAnswerEntryMode("write");
     window.requestAnimationFrame(redrawAnswerInk);
-  }, [currentIndex, redrawAnswerInk]);
+    window.requestAnimationFrame(redrawUnitInk);
+  }, [currentIndex, redrawAnswerInk, redrawUnitInk]);
 
   useEffect(() => {
     if (answerEntryMode !== "write") return undefined;
 
     const surface = answerInkSurfaceRef.current;
+    const unitSurface = unitInkSurfaceRef.current;
     if (!surface) return undefined;
 
     window.requestAnimationFrame(redrawAnswerInk);
+    window.requestAnimationFrame(redrawUnitInk);
 
     if (typeof ResizeObserver === "undefined") return undefined;
-    const observer = new ResizeObserver(redrawAnswerInk);
+    const observer = new ResizeObserver(() => {
+      redrawAnswerInk();
+      redrawUnitInk();
+    });
     observer.observe(surface);
+    if (unitSurface) observer.observe(unitSurface);
     return () => observer.disconnect();
-  }, [answerEntryMode, redrawAnswerInk]);
+  }, [answerEntryMode, answerUnitRequired, redrawAnswerInk, redrawUnitInk]);
 
   useEffect(() => {
     // Load the local digit model in the background so the first handwritten
     // answer can be recognised without a noticeable model-startup pause.
     void warmOnnxDigitRecognizer();
+    void warmOnnxUnitRecognizer();
   }, []);
 
   useEffect(() => {
@@ -595,6 +832,10 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   useEffect(
     () => () => {
       if (answerInkTimerRef.current) window.clearTimeout(answerInkTimerRef.current);
+      if (unitInkTimerRef.current) window.clearTimeout(unitInkTimerRef.current);
+      if (helpScrollAnimationRef.current) {
+        window.cancelAnimationFrame(helpScrollAnimationRef.current);
+      }
     },
     []
   );
@@ -615,7 +856,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
       } else {
         setFeedback({
           type: "wrong",
-          text: `${question.hint} Change your answer and try again.`,
+          text: "Change your answer and try again.",
         });
       }
     },
@@ -655,10 +896,44 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     setCurrentAnswerValue(event.target.value);
   };
 
+  const setCurrentUnitValue = useCallback(
+    (value) => {
+      const normalized = String(value ?? "")
+        .toLowerCase()
+        .replace(/\s+/g, "")
+        .slice(0, 3);
+      setUnits((previous) => {
+        const next = [...previous];
+        next[currentIndex] = normalized;
+        return next;
+      });
+      setChecked((previous) => {
+        const next = [...previous];
+        next[currentIndex] = false;
+        return next;
+      });
+      setCorrect((previous) => {
+        const next = [...previous];
+        next[currentIndex] = false;
+        return next;
+      });
+      setFeedback({ type: "", text: "" });
+    },
+    [currentIndex]
+  );
+
+  const handleUnitChange = (event) => {
+    setCurrentUnitValue(event.target.value.replace(/[^a-zA-Z/]/g, ""));
+  };
+
   const handleTypeAnswer = () => {
     if (answerInkTimerRef.current) {
       window.clearTimeout(answerInkTimerRef.current);
       answerInkTimerRef.current = null;
+    }
+    if (unitInkTimerRef.current) {
+      window.clearTimeout(unitInkTimerRef.current);
+      unitInkTimerRef.current = null;
     }
     setAnswerEntryMode("type");
     window.requestAnimationFrame(() => answerInputRef.current?.focus());
@@ -693,27 +968,41 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
 
   const handleWriteAnswer = () => {
     answerInputRef.current?.blur();
+    unitInputRef.current?.blur();
     const recognised = recognisedAnswers[currentIndex];
     if (recognised) setCurrentAnswerValue(recognised);
+    const recognisedUnit = recognisedUnits[currentIndex];
+    if (recognisedUnit) setCurrentUnitValue(recognisedUnit);
     setAnswerEntryMode("write");
-    window.requestAnimationFrame(redrawAnswerInk);
+    window.requestAnimationFrame(() => {
+      redrawAnswerInk();
+      redrawUnitInk();
+    });
   };
 
   const handleClearAnswer = () => {
     clearAnswerInk();
+    clearUnitInk();
     setRecognisedAnswers((previous) => {
       const next = [...previous];
       next[currentIndex] = "";
       return next;
     });
+    setRecognisedUnits((previous) => {
+      const next = [...previous];
+      next[currentIndex] = "";
+      return next;
+    });
     setCurrentAnswerValue("");
+    setCurrentUnitValue("");
     setAnswerInkMessage("");
   };
 
   const handleCheckAnswer = async (event) => {
     event.preventDefault();
 
-    let raw = answers[currentIndex].trim();
+    let rawNumber = answers[currentIndex].trim();
+    let rawUnit = answerUnitRequired ? units[currentIndex].trim() : "";
 
     // In handwriting mode, use the complete visible ink. Recognition never
     // erases or replaces the learner's writing; it only updates the reading
@@ -721,26 +1010,43 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     const currentInk = answerInkStrokesRef.current[currentIndex] || [];
     if (answerEntryMode === "write" && currentInk.length) {
       const recognisedNow = await recogniseAnswerInk();
-      if (recognisedNow) raw = recognisedNow;
-      else raw = recognisedAnswers[currentIndex].trim();
+      if (recognisedNow) rawNumber = recognisedNow;
+      else rawNumber = recognisedAnswers[currentIndex].trim();
     }
 
-    const normalized = raw.replace(/\s+/g, "").replace(",", ".");
-    const value = Number(normalized);
+    const currentUnitInk = unitInkStrokesRef.current[currentIndex] || [];
+    if (answerEntryMode === "write" && answerUnitRequired && currentUnitInk.length) {
+      const recognisedUnitNow = await recogniseUnitInk();
+      if (recognisedUnitNow) rawUnit = recognisedUnitNow;
+      else rawUnit = recognisedUnits[currentIndex].trim();
+    }
 
-    if (!raw || !Number.isFinite(value) || value < 0) {
+    const parsedAnswer = parseAnswerQuantity(
+      answerUnitRequired ? `${rawNumber} ${rawUnit}` : rawNumber,
+      currentQuestion,
+      answerUnitRequired
+    );
+
+    if (parsedAnswer.error) {
+      const errorText =
+        parsedAnswer.error === "missing-unit"
+          ? "Write a unit in the unit box before checking."
+          : parsedAnswer.error === "wrong-unit"
+            ? "Check the unit."
+            : answerEntryMode === "write"
+              ? "I couldn't read a valid answer yet. Rewrite either box, or use Type answer."
+              : "Enter a valid number and unit first.";
       setFeedback({
         type: "wrong",
-        text:
-          answerEntryMode === "write"
-            ? "I couldn't read a valid number yet. Try writing it again, or use Type answer."
-            : "Enter a valid numerical answer first.",
+        text: errorText,
       });
       return;
     }
 
     const isCorrect =
-      Math.abs(value - currentQuestion.answer) <= currentQuestion.tolerance;
+      Math.abs(
+        parsedAnswer.valueInBaseUnits - parsedAnswer.answerInBaseUnits
+      ) <= parsedAnswer.toleranceInBaseUnits;
 
     setChecked((previous) => {
       const next = [...previous];
@@ -762,7 +1068,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
           }
         : {
             type: "wrong",
-            text: `${currentQuestion.hint} Change your answer and try again.`,
+            text: "Change your answer and try again.",
           }
     );
 
@@ -784,7 +1090,42 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
       workingHelpShownRef.current = next;
       return next;
     });
-    window.requestAnimationFrame(redraw);
+    window.requestAnimationFrame(() => {
+      const workpad = canvasRef.current?.parentElement;
+      resizeCanvas();
+
+      if (!workpad) return;
+      const startScroll = Math.max(0, workpad.scrollWidth - workpad.clientWidth);
+      workpad.scrollLeft = startScroll;
+
+      if (helpScrollAnimationRef.current) {
+        window.cancelAnimationFrame(helpScrollAnimationRef.current);
+      }
+
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        workpad.scrollLeft = 0;
+        return;
+      }
+
+      const duration = 1500;
+      const startTime = performance.now();
+      const animateScroll = (now) => {
+        const progress = Math.min(1, (now - startTime) / duration);
+        const eased =
+          progress < 0.5
+            ? 4 * progress * progress * progress
+            : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+        workpad.scrollLeft = startScroll * (1 - eased);
+
+        if (progress < 1) {
+          helpScrollAnimationRef.current = window.requestAnimationFrame(animateScroll);
+        } else {
+          helpScrollAnimationRef.current = null;
+        }
+      };
+
+      helpScrollAnimationRef.current = window.requestAnimationFrame(animateScroll);
+    });
   };
 
   const moveToQuestion = (index) => {
@@ -832,9 +1173,17 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   const getCanvasPoint = (event) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
+    const helpIsVisible = workingHelpShownRef.current[currentIndexRef.current];
+    const renderedX = Math.max(
+      0,
+      Math.min(1, (event.clientX - rect.left) / rect.width)
+    );
+    const logicalX = helpIsVisible
+      ? renderedX * WORKING_HELP_TOTAL_WIDTH - WORKING_HELP_LEFT_SPACE
+      : renderedX;
 
     return {
-      x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+      x: Math.max(-WORKING_HELP_LEFT_SPACE, Math.min(1, logicalX)),
       y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
     };
   };
@@ -869,7 +1218,20 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     return match ? match[0] : "";
   };
 
-  const recogniseWithDeviceHandwriting = async (strokes) => {
+  const normalizeRecognisedUnit = (value) => {
+    const cleaned = String(value ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "")
+      .replace(/[^a-z/]/g, "");
+    return RECOGNISABLE_UNITS.includes(cleaned) ? cleaned : "";
+  };
+
+  const recogniseWithDeviceHandwriting = async (
+    strokes,
+    question,
+    recognitionKind
+  ) => {
     const recognizer = nativeHandwritingRecognizerRef.current;
     if (!recognizer || typeof window.HandwritingStroke !== "function") return "";
 
@@ -882,11 +1244,17 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
           : undefined;
 
     try {
-      const hints = {
-        recognitionType: "number",
-        alternatives: 4,
-        graphemeSet: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "."],
-      };
+      const hints = recognitionKind === "unit"
+        ? {
+            recognitionType: "text",
+            alternatives: 8,
+            graphemeSet: ["m", "s", "c", "k", "/", "M", "S", "C", "K"],
+          }
+        : {
+            recognitionType: "number",
+            alternatives: 4,
+            graphemeSet: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "."],
+          };
       if (inputType) hints.inputType = inputType;
 
       const drawing = recognizer.startDrawing(hints);
@@ -903,7 +1271,9 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
       drawing.clear?.();
 
       for (const prediction of predictions || []) {
-        const candidate = normalizeRecognisedNumber(prediction?.text);
+        const candidate = recognitionKind === "unit"
+          ? normalizeRecognisedUnit(prediction?.text)
+          : normalizeRecognisedNumber(prediction?.text);
         if (candidate) return candidate;
       }
     } catch {
@@ -926,6 +1296,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
 
     const requestId = ++answerRecognitionRequestRef.current;
     setAnswerInkMessage("Recognising…");
+    const question = QUESTIONS[index];
 
     // Run the bundled neural-network recogniser locally in the browser. The
     // handwriting never leaves the device. If its confidence is low, a browser/
@@ -937,11 +1308,16 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
       rect.width,
       rect.height
     );
-    let text = normalizeRecognisedNumber(onnxResult.text);
+    const numberText = normalizeRecognisedNumber(onnxResult.text);
+    let text = numberText;
     let confident = Boolean(text && onnxResult.confident);
 
     if (!confident) {
-      const deviceText = await recogniseWithDeviceHandwriting(strokes);
+      const deviceText = await recogniseWithDeviceHandwriting(
+        strokes,
+        question,
+        "number"
+      );
       if (deviceText) {
         text = deviceText;
         confident = true;
@@ -976,7 +1352,11 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
       });
 
       setFeedback({ type: "", text: "" });
-      setAnswerInkMessage(confident ? "" : "Check the recognised number before submitting.");
+      setAnswerInkMessage(
+        confident
+          ? ""
+          : "Check the recognised number before submitting."
+      );
       return text;
     }
 
@@ -994,11 +1374,81 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     return "";
   };
 
+  const recogniseUnitInk = async () => {
+    const surface = unitInkSurfaceRef.current;
+    const index = currentIndexRef.current;
+    const strokes = unitInkStrokesRef.current[index] || [];
+    if (!surface || !strokes.length) return recognisedUnits[index] || "";
+
+    if (unitInkTimerRef.current) {
+      window.clearTimeout(unitInkTimerRef.current);
+      unitInkTimerRef.current = null;
+    }
+
+    const requestId = ++unitRecognitionRequestRef.current;
+    setAnswerInkMessage("Recognising unit…");
+    const question = QUESTIONS[index];
+    const rect = surface.getBoundingClientRect();
+    const onnxResult = await recogniseUnitWithOnnx(strokes, rect.height);
+    let text = normalizeRecognisedUnit(onnxResult.text);
+    let confident = Boolean(text && onnxResult.confident);
+
+    if (!confident) {
+      const deviceText = await recogniseWithDeviceHandwriting(strokes, question, "unit");
+      if (deviceText) {
+        text = deviceText;
+        confident = true;
+      }
+    }
+
+    if (requestId !== unitRecognitionRequestRef.current) return "";
+
+    setRecognisedUnits((previous) => {
+      const next = [...previous];
+      next[index] = text;
+      return next;
+    });
+    setUnits((previous) => {
+      const next = [...previous];
+      next[index] = text;
+      return next;
+    });
+    setChecked((previous) => {
+      const next = [...previous];
+      next[index] = false;
+      return next;
+    });
+    setCorrect((previous) => {
+      const next = [...previous];
+      next[index] = false;
+      return next;
+    });
+    setFeedback({ type: "", text: "" });
+
+    if (text) {
+      setAnswerInkMessage(confident ? "" : "Check the recognised unit before submitting.");
+      return text;
+    }
+
+    setAnswerInkMessage(
+      `I couldn't read that unit — use ${RECOGNISABLE_UNITS.join(", ")}, or Type answer.`
+    );
+    return "";
+  };
+
   const scheduleAnswerInkRecognition = () => {
     if (answerInkTimerRef.current) window.clearTimeout(answerInkTimerRef.current);
     answerInkTimerRef.current = window.setTimeout(() => {
       answerInkTimerRef.current = null;
       void recogniseAnswerInk();
+    }, 700);
+  };
+
+  const scheduleUnitInkRecognition = () => {
+    if (unitInkTimerRef.current) window.clearTimeout(unitInkTimerRef.current);
+    unitInkTimerRef.current = window.setTimeout(() => {
+      unitInkTimerRef.current = null;
+      void recogniseUnitInk();
     }, 700);
   };
 
@@ -1108,9 +1558,11 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
       return;
     }
 
-    answerInkActiveStrokeRef.current.points.push(
-      getAnswerInkPoint(event, answerInkActiveStrokeRef.current.startTime)
+    const startTime = answerInkActiveStrokeRef.current.startTime;
+    const points = getCoalescedPointerSamples(event).map((sample) =>
+      getAnswerInkPoint(sample, startTime)
     );
+    answerInkActiveStrokeRef.current.points.push(...points);
     redrawAnswerInk();
   };
 
@@ -1145,6 +1597,131 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     }
   };
 
+  const getUnitInkPoint = (event, strokeStartTime = performance.now()) => {
+    const surface = unitInkSurfaceRef.current;
+    const rect = surface.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
+      y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
+      t: Math.max(0, performance.now() - strokeStartTime),
+    };
+  };
+
+  const eraseUnitInkAt = (point, radius = 18) => {
+    const index = currentIndexRef.current;
+    const strokes = unitInkStrokesRef.current[index] || [];
+    const nextStrokes = [];
+
+    strokes.forEach((stroke) => {
+      let survivingSegment = [];
+      const keepSegment = () => {
+        if (!survivingSegment.length) return;
+        nextStrokes.push({ ...stroke, points: survivingSegment });
+        survivingSegment = [];
+      };
+      stroke.points.forEach((strokePoint) => {
+        if (Math.hypot(strokePoint.x - point.x, strokePoint.y - point.y) <= radius) {
+          keepSegment();
+        } else {
+          survivingSegment.push(strokePoint);
+        }
+      });
+      keepSegment();
+    });
+
+    unitInkStrokesRef.current[index] = nextStrokes;
+    session.unitInkStrokes = unitInkStrokesRef.current;
+    redrawUnitInk();
+    return nextStrokes.length > 0;
+  };
+
+  const handleUnitInkPointerDownCapture = (event) => {
+    if (!isAnswerWritingPointer(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const surface = unitInkSurfaceRef.current;
+    if (!surface) return;
+    if (unitInkTimerRef.current) {
+      window.clearTimeout(unitInkTimerRef.current);
+      unitInkTimerRef.current = null;
+    }
+    unitRecognitionRequestRef.current += 1;
+
+    if (isEraserEvent(event)) {
+      surface.setPointerCapture(event.pointerId);
+      unitInkPointerIdRef.current = event.pointerId;
+      unitInkErasingRef.current = true;
+      unitInkActiveStrokeRef.current = null;
+      setRecognisedUnits((previous) => {
+        const next = [...previous];
+        next[currentIndexRef.current] = "";
+        return next;
+      });
+      setCurrentUnitValue("");
+      setAnswerInkMessage("Erasing unit…");
+      const radius = Math.max(18, Math.min(30, Math.max(event.width, event.height)));
+      eraseUnitInkAt(getUnitInkPoint(event), radius);
+      return;
+    }
+
+    const index = currentIndexRef.current;
+    const strokes = unitInkStrokesRef.current[index] || [];
+    if (!unitInkStrokesRef.current[index]) unitInkStrokesRef.current[index] = strokes;
+    setAnswerInkMessage(strokes.length ? "Updating unit…" : "Writing unit…");
+    surface.setPointerCapture(event.pointerId);
+    unitInkPointerIdRef.current = event.pointerId;
+    const startTime = performance.now();
+    const stroke = {
+      pointerType: event.pointerType,
+      startTime,
+      points: [getUnitInkPoint(event, startTime)],
+    };
+    unitInkActiveStrokeRef.current = stroke;
+    strokes.push(stroke);
+    session.unitInkStrokes = unitInkStrokesRef.current;
+    redrawUnitInk();
+  };
+
+  const handleUnitInkPointerMoveCapture = (event) => {
+    if (unitInkPointerIdRef.current !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (unitInkErasingRef.current) {
+      const radius = Math.max(18, Math.min(30, Math.max(event.width, event.height)));
+      eraseUnitInkAt(getUnitInkPoint(event), radius);
+      return;
+    }
+    if (!unitInkActiveStrokeRef.current) return;
+    const startTime = unitInkActiveStrokeRef.current.startTime;
+    const points = getCoalescedPointerSamples(event).map((sample) =>
+      getUnitInkPoint(sample, startTime)
+    );
+    unitInkActiveStrokeRef.current.points.push(...points);
+    redrawUnitInk();
+  };
+
+  const handleUnitInkPointerEndCapture = (event) => {
+    if (unitInkPointerIdRef.current !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const surface = unitInkSurfaceRef.current;
+    const wasErasing = unitInkErasingRef.current;
+    unitInkActiveStrokeRef.current = null;
+    unitInkPointerIdRef.current = null;
+    unitInkErasingRef.current = false;
+    if (surface?.hasPointerCapture(event.pointerId)) surface.releasePointerCapture(event.pointerId);
+
+    const strokesRemain = (unitInkStrokesRef.current[currentIndexRef.current] || []).length > 0;
+    if (strokesRemain) {
+      setAnswerInkMessage(wasErasing ? "Updating unit…" : "Recognising unit…");
+      scheduleUnitInkRecognition();
+    } else {
+      setAnswerInkMessage("Unit cleared");
+    }
+  };
+
   const handlePointerDown = (event) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
 
@@ -1166,7 +1743,8 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
 
   const handlePointerMove = (event) => {
     if (!drawingRef.current || !activeStrokeRef.current) return;
-    activeStrokeRef.current.points.push(getCanvasPoint(event));
+    const points = getCoalescedPointerSamples(event).map(getCanvasPoint);
+    activeStrokeRef.current.points.push(...points);
     redraw();
   };
 
@@ -1180,10 +1758,20 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     }
   };
 
+  const clearWorking = () => {
+    drawingsRef.current[currentIndexRef.current] = [];
+    session.drawings = drawingsRef.current;
+    drawingRef.current = false;
+    activeStrokeRef.current = null;
+    redraw();
+  };
+
   const reward = activeReward === null ? null : rewardPlan[activeReward];
   const isFinalReward = reward?.afterQuestion === QUESTIONS.length;
   const currentAnswerInk = answerInkStrokesRef.current[currentIndex] || [];
+  const currentUnitInk = unitInkStrokesRef.current[currentIndex] || [];
   const currentRecognisedAnswer = recognisedAnswers[currentIndex] || "";
+  const currentRecognisedUnit = recognisedUnits[currentIndex] || "";
 
   return (
     <div className="batQuiz">
@@ -1193,7 +1781,12 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
             <div className="batQuiz__topRow">
               <div className="batQuiz__formulaGroup">
                 <div className="batQuiz__eyebrow">Echo calculations</div>
-                <div className="batQuiz__formula">distance = ½ × speed × time</div>
+                <div
+                  className={`batQuiz__formula ${currentIndex >= 4 ? "is-hidden" : ""}`}
+                  aria-hidden={currentIndex >= 4}
+                >
+                  distance = ½ × speed × time
+                </div>
               </div>
 
               <div className="batQuiz__topMeta">
@@ -1226,62 +1819,121 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
                   <div className="batQuiz__questionLabel">Question</div>
                   <h2 className="batQuiz__questionText">{currentQuestion.text}</h2>
 
-                  <form className="batQuiz__answerPanel" onSubmit={handleCheckAnswer}>
+                  <form
+                    className={`batQuiz__answerPanel ${
+                      feedback.type === "correct" ? "has-correct-feedback" : ""
+                    }`}
+                    onSubmit={handleCheckAnswer}
+                  >
                     <div className="batQuiz__answerLabel">Your answer</div>
 
-                    <div className="batQuiz__answerRow">
+                    <div className={`batQuiz__answerRow ${answerUnitRequired ? "has-unit-entry" : ""}`}>
                       {answerEntryMode === "write" ? (
-                        <div
-                          ref={answerInkSurfaceRef}
-                          className={`batQuiz__writeAnswerBox ${
-                            currentAnswerInk.length ? "is-inking" : ""
-                          }`}
-                          role="textbox"
-                          aria-label={`Write your answer in ${currentQuestion.unit} with a stylus`}
-                          onPointerDownCapture={handleAnswerInkPointerDownCapture}
-                          onPointerMoveCapture={handleAnswerInkPointerMoveCapture}
-                          onPointerUpCapture={handleAnswerInkPointerEndCapture}
-                          onPointerCancelCapture={handleAnswerInkPointerEndCapture}
-                        >
-                          {!currentAnswerInk.length ? (
-                            <div className="batQuiz__writePrompt">Write your answer</div>
-                          ) : null}
-                          <canvas
-                            ref={answerInkCanvasRef}
-                            className="batQuiz__answerInkCanvas"
-                            aria-hidden="true"
-                          />
-                        </div>
+                        <>
+                          <div
+                            ref={answerInkSurfaceRef}
+                            className={`batQuiz__writeAnswerBox batQuiz__writeAnswerBox--number ${
+                              currentAnswerInk.length ? "is-inking" : ""
+                            }`}
+                            role="textbox"
+                            aria-label={`Write your numerical answer${answerUnitRequired ? "" : ` in ${currentQuestion.unit}`} with a stylus`}
+                            onPointerDownCapture={handleAnswerInkPointerDownCapture}
+                            onPointerMoveCapture={handleAnswerInkPointerMoveCapture}
+                            onPointerUpCapture={handleAnswerInkPointerEndCapture}
+                            onPointerCancelCapture={handleAnswerInkPointerEndCapture}
+                          >
+                            {!currentAnswerInk.length ? (
+                              <div className="batQuiz__writePrompt">
+                                {answerUnitRequired ? "Number" : "Write your answer"}
+                              </div>
+                            ) : null}
+                            <canvas
+                              ref={answerInkCanvasRef}
+                              className="batQuiz__answerInkCanvas"
+                              aria-hidden="true"
+                            />
+                          </div>
+                          {answerUnitRequired ? (
+                            <div
+                              ref={unitInkSurfaceRef}
+                              className={`batQuiz__writeAnswerBox batQuiz__writeAnswerBox--unit ${
+                                currentUnitInk.length ? "is-inking" : ""
+                              }`}
+                              role="textbox"
+                              aria-label={`Write the unit. Recognised units are ${RECOGNISABLE_UNITS.join(", ")}`}
+                              onPointerDownCapture={handleUnitInkPointerDownCapture}
+                              onPointerMoveCapture={handleUnitInkPointerMoveCapture}
+                              onPointerUpCapture={handleUnitInkPointerEndCapture}
+                              onPointerCancelCapture={handleUnitInkPointerEndCapture}
+                            >
+                              {!currentUnitInk.length ? (
+                                <div className="batQuiz__writePrompt">Unit</div>
+                              ) : null}
+                              <canvas
+                                ref={unitInkCanvasRef}
+                                className="batQuiz__answerInkCanvas"
+                                aria-hidden="true"
+                              />
+                            </div>
+                          ) : (
+                            <div className="batQuiz__unit">{currentQuestion.unit}</div>
+                          )}
+                        </>
                       ) : (
-                        <input
-                          ref={answerInputRef}
-                          id="bat-quiz-answer"
-                          className="batQuiz__answerInput"
-                          type="text"
-                          inputMode="none"
-                          enterKeyHint="done"
-                          autoComplete="off"
-                          autoCapitalize="off"
-                          autoCorrect="off"
-                          spellCheck={false}
-                          placeholder="Type a number"
-                          aria-label={`Type your answer in ${currentQuestion.unit}`}
-                          value={answers[currentIndex]}
-                          onChange={handleAnswerChange}
-                        />
+                        <>
+                          <input
+                            ref={answerInputRef}
+                            id="bat-quiz-answer"
+                            className="batQuiz__answerInput batQuiz__answerInput--number"
+                            type="text"
+                            inputMode={answerUnitRequired ? "decimal" : "none"}
+                            enterKeyHint="done"
+                            autoComplete="off"
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            placeholder="Type a number"
+                            aria-label={`Type your numerical answer${answerUnitRequired ? "" : ` in ${currentQuestion.unit}`}`}
+                            value={answers[currentIndex]}
+                            onChange={handleAnswerChange}
+                          />
+                          {answerUnitRequired ? (
+                            <input
+                              ref={unitInputRef}
+                              className="batQuiz__answerInput batQuiz__answerInput--unit"
+                              type="text"
+                              inputMode="text"
+                              enterKeyHint="done"
+                              autoComplete="off"
+                              autoCapitalize="off"
+                              autoCorrect="off"
+                              spellCheck={false}
+                              maxLength={3}
+                              placeholder="Unit"
+                              aria-label={`Type the unit. Recognised units are ${RECOGNISABLE_UNITS.join(", ")}`}
+                              value={units[currentIndex]}
+                              onChange={handleUnitChange}
+                            />
+                          ) : (
+                            <div className="batQuiz__unit">{currentQuestion.unit}</div>
+                          )}
+                        </>
                       )}
-                      <div className="batQuiz__unit">{currentQuestion.unit}</div>
                     </div>
 
                     {answerEntryMode === "write" ? (
                       <div className="batQuiz__recognitionReadout" aria-live="polite">
                         <span>Recognised:</span>
                         <strong>{currentRecognisedAnswer || "—"}</strong>
-                        {currentRecognisedAnswer ? <span>{currentQuestion.unit}</span> : null}
+                        <span>
+                          {answerUnitRequired
+                            ? currentRecognisedUnit || "—"
+                            : currentQuestion.unit}
+                        </span>
                       </div>
                     ) : null}
 
-                    {answerEntryMode === "type" ? (
+                    {answerEntryMode === "type" && !answerUnitRequired ? (
                       <div className="batQuiz__keypad" aria-label="Number keypad">
                         {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "backspace"].map(
                           (key) => (
@@ -1313,7 +1965,12 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
                             type="button"
                             className="batQuiz__answerClearButton"
                             onClick={handleClearAnswer}
-                            disabled={!answers[currentIndex] && !currentAnswerInk.length}
+                            disabled={
+                              !answers[currentIndex] &&
+                              !units[currentIndex] &&
+                              !currentAnswerInk.length &&
+                              !currentUnitInk.length
+                            }
                           >
                             Clear
                           </button>
@@ -1330,8 +1987,8 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
                           <button
                             type="button"
                             className="batQuiz__answerClearButton"
-                            onClick={() => handleKeypadPress("clear")}
-                            disabled={!answers[currentIndex]}
+                            onClick={handleClearAnswer}
+                            disabled={!answers[currentIndex] && !units[currentIndex]}
                           >
                             Clear
                           </button>
@@ -1360,11 +2017,11 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
 
                     {currentIndex < WORKING_HELP.length &&
                     wrongAttempts[currentIndex] >= 2 &&
-                    !workingHelpShown[currentIndex] &&
                     !correct[currentIndex] ? (
                       <button
                         type="button"
                         className="batQuiz__stuckButton"
+                        aria-pressed={workingHelpShown[currentIndex]}
                         onClick={handleShowWorkingHelp}
                       >
                         I’m completely stuck
@@ -1378,7 +2035,19 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
                 </section>
 
                 <section className="batQuiz__workPanel" ref={workSideRef}>
-                  <div className="batQuiz__workpad">
+                  <div
+                    className={`batQuiz__workpad ${
+                      workingHelpShown[currentIndex] ? "has-working-help" : ""
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className="batQuiz__workClear"
+                      onClick={clearWorking}
+                      aria-label="Clear working for this question"
+                    >
+                      Clear
+                    </button>
                     <canvas
                       ref={canvasRef}
                       className="batQuiz__canvas"

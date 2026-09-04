@@ -68,6 +68,10 @@
   letter-spacing: -0.02em;
 }
 
+.batQuiz__formula.is-hidden {
+  visibility: hidden;
+}
+
 .batQuiz__topMeta {
   display: flex;
   flex-wrap: wrap;
@@ -161,6 +165,7 @@
 }
 
 .batQuiz__questionPanel {
+  position: relative;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -189,6 +194,7 @@
 }
 
 .batQuiz__answerPanel {
+  position: relative;
   margin-top: auto;
   padding: 16px;
   border: 1px solid #3b526b;
@@ -209,6 +215,10 @@
   gap: 8px;
 }
 
+.batQuiz__answerRow.has-unit-entry {
+  align-items: stretch;
+}
+
 .batQuiz__writeAnswerBox {
   position: relative;
   min-width: 0;
@@ -223,6 +233,15 @@
   background-size: 28px 28px;
   touch-action: none;
   cursor: crosshair;
+}
+
+.batQuiz__writeAnswerBox--number {
+  flex: 1 1 auto;
+}
+
+.batQuiz__writeAnswerBox--unit {
+  flex: 0 0 clamp(124px, 34%, 158px);
+  min-width: 124px;
 }
 
 .batQuiz__writePrompt {
@@ -246,8 +265,8 @@
 .batQuiz__answerInput {
   width: 100%;
   min-width: 0;
-  min-height: 68px;
-  padding: 14px 16px;
+  min-height: 49px;
+  padding: 8px 16px;
   border: 2px solid #6b839c;
   border-radius: 12px;
   background: var(--bat-panel-mid);
@@ -258,6 +277,17 @@
   font-weight: 650;
   letter-spacing: 0.01em;
   touch-action: auto;
+}
+
+.batQuiz__answerInput--number {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.batQuiz__answerInput--unit {
+  flex: 0 0 clamp(104px, 30%, 132px);
+  width: clamp(104px, 30%, 132px);
+  text-align: center;
 }
 
 .batQuiz__answerInput::placeholder {
@@ -295,25 +325,26 @@
 .batQuiz__keypad {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 10px;
+  width: 78%;
+  gap: 4px;
+  margin: 8px auto 0;
 }
 
 .batQuiz__keypadKey {
-  min-height: 48px;
-  padding: 8px;
+  min-height: 30px;
+  padding: 3px 6px;
   border: 1px solid #55728f;
-  border-radius: 10px;
+  border-radius: 8px;
   background: #172333;
   color: #ffffff;
   font: inherit;
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 750;
   cursor: pointer;
 }
 
 .batQuiz__keypadKey.is-action {
-  font-size: 23px;
+  font-size: 18px;
 }
 
 .batQuiz__keypadKey:active {
@@ -384,7 +415,8 @@
 }
 
 .batQuiz__answerInput:focus,
-.batQuiz__writeAnswerBox:focus-within {
+.batQuiz__writeAnswerBox:focus-within,
+.batQuiz__writeAnswerBox:focus {
   border-color: #78dff1;
 }
 
@@ -402,8 +434,17 @@
 }
 
 .batQuiz__feedback--correct {
+  margin-top: 8px;
   border-color: #39b982;
   background: #103728;
+}
+
+.batQuiz__answerPanel.has-correct-feedback .batQuiz__inkStatus {
+  display: none;
+}
+
+.batQuiz__answerPanel.has-correct-feedback .batQuiz__check {
+  margin-top: 8px;
 }
 
 .batQuiz__feedback--wrong {
@@ -445,6 +486,42 @@
   background-image: linear-gradient(#d8dee6 1px, transparent 1px),
     linear-gradient(90deg, #d8dee6 1px, transparent 1px);
   background-size: 28px 28px;
+}
+
+.batQuiz__workpad.has-working-help {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.batQuiz__workpad.has-working-help .batQuiz__canvas {
+  right: auto;
+  width: 165%;
+  background-color: #fff;
+  background-image: linear-gradient(#d8dee6 1px, transparent 1px),
+    linear-gradient(90deg, #d8dee6 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.batQuiz__workClear {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  min-height: 40px;
+  padding: 7px 14px;
+  border: 1px solid #55728f;
+  border-radius: 9px;
+  background: rgba(18, 35, 52, 0.92);
+  color: #f8fafc;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.25);
+  cursor: pointer;
+}
+
+.batQuiz__workClear:hover {
+  background: #1d4862;
 }
 
 .batQuiz__canvas {
@@ -537,6 +614,7 @@
 .batQuiz__keypadKey:focus-visible,
 .batQuiz__answerModeButton:focus-visible,
 .batQuiz__answerClearButton:focus-visible,
+.batQuiz__workClear:focus-visible,
 .batQuiz__button:focus-visible,
 .batQuiz__swap:focus-visible {
   outline: 3px solid #29d3f2;
