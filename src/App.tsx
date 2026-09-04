@@ -2707,7 +2707,7 @@ function BatWaveField({
       next.fill(0)
 
       if (step % 2 === 0 && primaryTraceSamples.length < BAT_TRACE_CAPACITY) {
-        const directCall = binaural ? directCallAtEar(step) : 0
+        const directCall = directCallAtEar(step)
         primaryTraceSamples.push(
           current[primaryReceiverY * BAT_SIMULATION_WIDTH + primaryReceiverX] + directCall,
         )
