@@ -2417,25 +2417,12 @@ const BAT_OUTPUT_HEIGHT = 650
 const BAT_FIELD_WIDTH = 552
 const BAT_FIELD_HEIGHT = 325
 const BAT_FIELD_SCALE = BAT_OUTPUT_WIDTH / BAT_FIELD_WIDTH
-// Two hidden 16-cell tile layers absorb outgoing waves while keeping the
-// off-screen simulation compact. This 32-cell guard avoids the edge reflection
-// seen with a single 16-cell layer while leaving the visible wave physics unchanged.
-const BAT_FIELD_PADDING = 32
+const BAT_FIELD_PADDING = 112
 const BAT_SIMULATION_WIDTH = BAT_FIELD_WIDTH + BAT_FIELD_PADDING * 2
 const BAT_SIMULATION_HEIGHT = BAT_FIELD_HEIGHT + BAT_FIELD_PADDING * 2
 const BAT_TRACE_CAPACITY = 540
 const BAT_POST_ECHO_STEPS = 480
 const BAT_WAVE_C2 = 0.39
-// Very gentle bulk acoustic attenuation. The 2D solver otherwise preserves
-// expanding wavefronts more strongly than a real 3D sound field. Retaining
-// 99.95% of pressure amplitude per physics step lets old wave energy fade
-// naturally and helps sparse tiles retire sooner without changing wave timing.
-const BAT_PROPAGATION_RETENTION = 0.9995
-const BAT_BACKGROUND_LOSS = 0.0006
-// The moth is not an ideal rigid acoustic wall. A pressure-amplitude reflection
-// coefficient of 0.50 keeps the echo clear while allowing more incident energy to be absorbed
-// to be absorbed at the surface instead of being returned coherently.
-const BAT_MOTH_REFLECTION_COEFFICIENT = 0.50
 const BAT_PULSE_OUTER_RADIUS = 91
 const BAT_SOURCE_X = 210
 const BAT_SOURCE_Y = 333
@@ -2543,15 +2530,6 @@ function BatWaveField({
     const pulseCycles = 4
     const emissionSteps = 45
     const waveSpeed = Math.sqrt(BAT_WAVE_C2)
-    // First-order acoustic impedance boundary for the moth. For a pressure
-    // reflection coefficient R, beta=(1-R)/(1+R). With dx=dt=1 in this solver,
-    // the ghost-cell correction is beta / c times the local pressure change.
-    // R=1 reduces exactly to the previous rigid-wall (Neumann) boundary.
-    const reflectorImpedanceBeta = (
-      (1 - BAT_MOTH_REFLECTION_COEFFICIENT)
-      / (1 + BAT_MOTH_REFLECTION_COEFFICIENT)
-    )
-    const reflectorGhostStepFactor = reflectorImpedanceBeta / waveSpeed
     const sourceToReflector = Math.hypot(obstacleX - sourceX, obstacleY - sourceY)
     const reflectorToReceiver = Math.hypot(
       obstacleX - primaryReceiverX,
@@ -2573,30 +2551,6 @@ function BatWaveField({
     let accumulator = 0
     let displayInitialized = false
     const fixedStepMs = 1000 / 120
-
-    // Let low playback speeds render at the display-friendly 60 fps, then
-    // progressively reduce the render target as the physics workload rises.
-    // Keep the existing curve through 2x, then continue easing from 30 fps
-    // at 2x down to 20 fps at 3x and above.
-    function getTargetRenderFps(speed: number) {
-      const minimumSpeed = 0.45
-      const thirtyFpsSpeed = 2
-      const twentyFpsSpeed = 3
-
-      if (speed <= thirtyFpsSpeed) {
-        const clampedSpeed = Math.max(minimumSpeed, speed)
-        const progress = (clampedSpeed - minimumSpeed) / (thirtyFpsSpeed - minimumSpeed)
-        const easedProgress = progress * progress * (3 - 2 * progress)
-        return 60 - 30 * easedProgress
-      }
-
-      const clampedSpeed = Math.min(twentyFpsSpeed, speed)
-      const progress = (clampedSpeed - thirtyFpsSpeed) / (twentyFpsSpeed - thirtyFpsSpeed)
-      const easedProgress = progress * progress * (3 - 2 * progress)
-      return 30 - 10 * easedProgress
-    }
-
-    let lastRenderTime = lastTime - 1000 / getTargetRenderFps(speedRef.current)
 
     // Temporary performance diagnostics for the bat wave simulation.
     // Logs once per second so we can see whether higher playback speeds
@@ -2624,212 +2578,12 @@ function BatWaveField({
     const tileStrongPropagationFloor = 0.001
     const tileCornerPropagationFloor = 0.0006
     const tileEdgeSupportCells = 2
-
-    // Off-screen guard tiles are disposable: they only exist to let outgoing
-    // energy die without reflecting from the visible edge. Keep visible and
-    // partially visible tiles conservative, but retire and propagate hidden
-    // tiles more aggressively.
-    const offscreenTileActivityFloor = 0.0008
-    const offscreenTilePropagationFloor = 0.0008
-    const offscreenTileStrongPropagationFloor = 0.0025
-    const offscreenTileCornerPropagationFloor = 0.0015
-    const offscreenTileEdgeSupportCells = 3
     let activeTileList = new Int32Array(tileCount)
     let nextActiveTileList = new Int32Array(tileCount)
     const candidateTileList = new Int32Array(tileCount)
     const candidateFlags = new Uint8Array(tileCount)
-    const nextSolveGuaranteedFlags = new Uint8Array(tileCount)
     const inactiveTileList = new Int32Array(tileCount)
     let activeTileCount = 0
-
-    // A second, geometry-based bound keeps old numerical tails from leaving
-    // large areas active forever. The outgoing pulse is a finite-width radial
-    // packet, and the reflected packet can only propagate away from the moth
-    // after the incident packet reaches it. These generous envelopes do not
-    // create tiles; they only reject tiles that are causally too far ahead of
-    // or too far behind both packets.
-    const packetCullMargin = 24
-    const reflectionLeadMarginSteps = 10
-    const reflectionInteractionSteps = Math.ceil(
-      (pulseOuterRadius - pulseInnerRadius) / waveSpeed,
-    ) + 24
-    const reflectionStartStep = Math.max(0, firstHitStep - reflectionLeadMarginSteps)
-    const reflectionEndStep = firstHitStep + reflectionInteractionSteps
-
-    const sourceTileMinDistanceSquared = new Float32Array(tileCount)
-    const sourceTileMaxDistanceSquared = new Float32Array(tileCount)
-    const reflectorTileMinDistanceSquared = new Float32Array(tileCount)
-    const reflectorTileMaxDistanceSquared = new Float32Array(tileCount)
-    const tileIsFullyOffscreen = new Uint8Array(tileCount)
-
-    // Cache geometry and neighbours once. The sparse solver touches these values
-    // hundreds of times per second, so avoid repeatedly deriving tile x/y,
-    // clamped bounds and neighbour indices inside simulateStep().
-    const tileLeft = new Int32Array(tileCount)
-    const tileRight = new Int32Array(tileCount)
-    const tileTop = new Int32Array(tileCount)
-    const tileBottom = new Int32Array(tileCount)
-    const tileSolveLeft = new Int32Array(tileCount)
-    const tileSolveRight = new Int32Array(tileCount)
-    const tileSolveTop = new Int32Array(tileCount)
-    const tileSolveBottom = new Int32Array(tileCount)
-    const tileNeighbourLeft = new Int32Array(tileCount)
-    const tileNeighbourRight = new Int32Array(tileCount)
-    const tileNeighbourTop = new Int32Array(tileCount)
-    const tileNeighbourBottom = new Int32Array(tileCount)
-    const tileNeighbourTopLeft = new Int32Array(tileCount)
-    const tileNeighbourTopRight = new Int32Array(tileCount)
-    const tileNeighbourBottomLeft = new Int32Array(tileCount)
-    const tileNeighbourBottomRight = new Int32Array(tileCount)
-    tileNeighbourLeft.fill(-1)
-    tileNeighbourRight.fill(-1)
-    tileNeighbourTop.fill(-1)
-    tileNeighbourBottom.fill(-1)
-    tileNeighbourTopLeft.fill(-1)
-    tileNeighbourTopRight.fill(-1)
-    tileNeighbourBottomLeft.fill(-1)
-    tileNeighbourBottomRight.fill(-1)
-
-    const tileActivityThreshold = new Float32Array(tileCount)
-    const tilePropagationThreshold = new Float32Array(tileCount)
-    const tileStrongPropagationThreshold = new Float32Array(tileCount)
-    const tileCornerPropagationThreshold = new Float32Array(tileCount)
-    const tileRequiredEdgeSupport = new Uint8Array(tileCount)
-    const tileKind = new Uint8Array(tileCount)
-    const TILE_KIND_NORMAL = 0
-    const TILE_KIND_DAMPED = 1
-    const TILE_KIND_REFLECTOR = 2
-    const normalLossPreviousScale = 1 - BAT_BACKGROUND_LOSS
-    const normalLossStepScale = BAT_PROPAGATION_RETENTION / (1 + BAT_BACKGROUND_LOSS)
-
-    const TILE_REACH_LEFT = 1 << 0
-    const TILE_REACH_RIGHT = 1 << 1
-    const TILE_REACH_TOP = 1 << 2
-    const TILE_REACH_BOTTOM = 1 << 3
-    const TILE_REACH_TOP_LEFT = 1 << 4
-    const TILE_REACH_TOP_RIGHT = 1 << 5
-    const TILE_REACH_BOTTOM_LEFT = 1 << 6
-    const TILE_REACH_BOTTOM_RIGHT = 1 << 7
-
-    // These flags describe the pressure on the tile edges in the *current*
-    // field. They are produced while the previous timestep is already solving
-    // the tile, eliminating a separate edge scan at the start of every step.
-    const tilePropagationFlags = new Uint8Array(tileCount)
-
-    const visibleSimulationLeft = BAT_FIELD_PADDING
-    const visibleSimulationRight = BAT_FIELD_PADDING + BAT_FIELD_WIDTH - 1
-    const visibleSimulationTop = BAT_FIELD_PADDING
-    const visibleSimulationBottom = BAT_FIELD_PADDING + BAT_FIELD_HEIGHT - 1
-
-    for (let tileY = 0; tileY < tileRows; tileY += 1) {
-      const top = tileY * tileSize
-      const bottom = Math.min(BAT_SIMULATION_HEIGHT - 1, (tileY + 1) * tileSize - 1)
-      for (let tileX = 0; tileX < tileColumns; tileX += 1) {
-        const left = tileX * tileSize
-        const right = Math.min(BAT_SIMULATION_WIDTH - 1, (tileX + 1) * tileSize - 1)
-        const tileIndex = tileY * tileColumns + tileX
-
-        tileLeft[tileIndex] = left
-        tileRight[tileIndex] = right
-        tileTop[tileIndex] = top
-        tileBottom[tileIndex] = bottom
-        tileSolveLeft[tileIndex] = Math.max(1, left)
-        tileSolveRight[tileIndex] = Math.min(BAT_SIMULATION_WIDTH - 2, right)
-        tileSolveTop[tileIndex] = Math.max(1, top)
-        tileSolveBottom[tileIndex] = Math.min(BAT_SIMULATION_HEIGHT - 2, bottom)
-
-        if (tileX > 0) tileNeighbourLeft[tileIndex] = tileIndex - 1
-        if (tileX + 1 < tileColumns) tileNeighbourRight[tileIndex] = tileIndex + 1
-        if (tileY > 0) tileNeighbourTop[tileIndex] = tileIndex - tileColumns
-        if (tileY + 1 < tileRows) tileNeighbourBottom[tileIndex] = tileIndex + tileColumns
-        if (tileX > 0 && tileY > 0) tileNeighbourTopLeft[tileIndex] = tileIndex - tileColumns - 1
-        if (tileX + 1 < tileColumns && tileY > 0) tileNeighbourTopRight[tileIndex] = tileIndex - tileColumns + 1
-        if (tileX > 0 && tileY + 1 < tileRows) tileNeighbourBottomLeft[tileIndex] = tileIndex + tileColumns - 1
-        if (tileX + 1 < tileColumns && tileY + 1 < tileRows) tileNeighbourBottomRight[tileIndex] = tileIndex + tileColumns + 1
-
-        const fullyOffscreen = Number(
-          right < visibleSimulationLeft
-          || left > visibleSimulationRight
-          || bottom < visibleSimulationTop
-          || top > visibleSimulationBottom
-        )
-        tileIsFullyOffscreen[tileIndex] = fullyOffscreen
-        tileActivityThreshold[tileIndex] = fullyOffscreen
-          ? offscreenTileActivityFloor
-          : tileActivityFloor
-        tilePropagationThreshold[tileIndex] = fullyOffscreen
-          ? offscreenTilePropagationFloor
-          : tilePropagationFloor
-        tileStrongPropagationThreshold[tileIndex] = fullyOffscreen
-          ? offscreenTileStrongPropagationFloor
-          : tileStrongPropagationFloor
-        tileCornerPropagationThreshold[tileIndex] = fullyOffscreen
-          ? offscreenTileCornerPropagationFloor
-          : tileCornerPropagationFloor
-        tileRequiredEdgeSupport[tileIndex] = fullyOffscreen
-          ? offscreenTileEdgeSupportCells
-          : tileEdgeSupportCells
-      }
-    }
-
-    function fillTileDistanceBounds(
-      centreX: number,
-      centreY: number,
-      minimums: Float32Array,
-      maximums: Float32Array,
-    ) {
-      for (let tileIndex = 0; tileIndex < tileCount; tileIndex += 1) {
-        const left = tileLeft[tileIndex]
-        const right = tileRight[tileIndex]
-        const top = tileTop[tileIndex]
-        const bottom = tileBottom[tileIndex]
-
-        const nearestX = centreX < left ? left : centreX > right ? right : centreX
-        const nearestY = centreY < top ? top : centreY > bottom ? bottom : centreY
-        const nearestDx = nearestX - centreX
-        const nearestDy = nearestY - centreY
-        minimums[tileIndex] = nearestDx * nearestDx + nearestDy * nearestDy
-
-        const farthestDx = Math.max(Math.abs(left - centreX), Math.abs(right - centreX))
-        const farthestDy = Math.max(Math.abs(top - centreY), Math.abs(bottom - centreY))
-        maximums[tileIndex] = farthestDx * farthestDx + farthestDy * farthestDy
-      }
-    }
-
-    fillTileDistanceBounds(
-      sourceX,
-      sourceY,
-      sourceTileMinDistanceSquared,
-      sourceTileMaxDistanceSquared,
-    )
-    fillTileDistanceBounds(
-      obstacleX,
-      obstacleY,
-      reflectorTileMinDistanceSquared,
-      reflectorTileMaxDistanceSquared,
-    )
-
-    function tileCouldContainWavePacketFromBounds(
-      tileIndex: number,
-      outgoingInnerSquared: number,
-      outgoingOuterSquared: number,
-      reflectionActive: boolean,
-      reflectedInnerSquared: number,
-      reflectedOuterSquared: number,
-    ) {
-      if (
-        sourceTileMinDistanceSquared[tileIndex] <= outgoingOuterSquared
-        && sourceTileMaxDistanceSquared[tileIndex] >= outgoingInnerSquared
-      ) {
-        return true
-      }
-
-      return Boolean(
-        reflectionActive
-        && reflectorTileMinDistanceSquared[tileIndex] <= reflectedOuterSquared
-        && reflectorTileMaxDistanceSquared[tileIndex] >= reflectedInnerSquared
-      )
-    }
 
     // Seed only the small set of tiles intersecting the initial pulse.
     const initialTileLeft = Math.max(0, Math.floor((sourceX - pulseOuterRadius - 1) / tileSize))
@@ -2852,12 +2606,9 @@ function BatWaveField({
           BAT_SIMULATION_WIDTH - 1 - x,
           BAT_SIMULATION_HEIGHT - 1 - y,
         )
-        // Keep the sponge entirely inside the hidden guard band. At the
-        // visible edge boundaryDepth is zero, so visible wave amplitudes are
-        // untouched; damping then ramps up smoothly toward the outer Mur edge.
-        const absorbingLayerWidth = BAT_FIELD_PADDING
+        const absorbingLayerWidth = 90
         const boundaryDepth = Math.max(0, (absorbingLayerWidth - edgeDistance) / absorbingLayerWidth)
-        loss[index] = BAT_BACKGROUND_LOSS + 0.65 * boundaryDepth ** 3
+        loss[index] = 0.0006 + 0.42 * boundaryDepth ** 3
       }
     }
 
@@ -2904,154 +2655,24 @@ function BatWaveField({
     const normalY = Math.sin(reflectorAngle)
     const tangentX = -normalY
     const tangentY = normalX
-
-    // Rasterise the reflector from its ideal rotated geometry instead of
-    // walking along the line and rounding individual sample points. The old
-    // method could produce angle-dependent gaps, duplicated cells and local
-    // thickness changes, which behave like tiny extra reflecting facets.
-    const reflectorHalfThickness = 1.5
-    const reflectorExtent = Math.ceil(obstacleHalfHeight + reflectorHalfThickness + 2)
-    const reflectorMinX = Math.max(1, obstacleX - reflectorExtent)
-    const reflectorMaxX = Math.min(BAT_SIMULATION_WIDTH - 2, obstacleX + reflectorExtent)
-    const reflectorMinY = Math.max(1, obstacleY - reflectorExtent)
-    const reflectorMaxY = Math.min(BAT_SIMULATION_HEIGHT - 2, obstacleY + reflectorExtent)
-
-    for (let y = reflectorMinY; y <= reflectorMaxY; y += 1) {
-      for (let x = reflectorMinX; x <= reflectorMaxX; x += 1) {
-        const dx = x - obstacleX
-        const dy = y - obstacleY
-        const along = dx * tangentX + dy * tangentY
-        const across = dx * normalX + dy * normalY
-
-        if (
-          Math.abs(along) <= obstacleHalfHeight + 0.5
-          && Math.abs(across) <= reflectorHalfThickness
-        ) {
+    for (let along = -obstacleHalfHeight; along <= obstacleHalfHeight; along += 1) {
+      for (let thickness = -1; thickness <= 1; thickness += 1) {
+        const x = Math.round(obstacleX + tangentX * along + normalX * thickness)
+        const y = Math.round(obstacleY + tangentY * along + normalY * thickness)
+        if (x > 0 && x < BAT_SIMULATION_WIDTH - 1 && y > 0 && y < BAT_SIMULATION_HEIGHT - 1) {
           const obstacleIndex = y * BAT_SIMULATION_WIDTH + x
           blocked[obstacleIndex] = 1
-        }
-      }
-    }
 
-    // Only cells immediately next to the reflector need the more expensive
-    // blocked-neighbour checks during the wave solve. Do this after the mask
-    // is complete so the adjacency map is independent of rasterisation order.
-    for (let y = reflectorMinY; y <= reflectorMaxY; y += 1) {
-      for (let x = reflectorMinX; x <= reflectorMaxX; x += 1) {
-        const obstacleIndex = y * BAT_SIMULATION_WIDTH + x
-        if (!blocked[obstacleIndex]) continue
-
-        for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
-          for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
-            if (offsetX === 0 && offsetY === 0) continue
-            reflectorAdjacent[(y + offsetY) * BAT_SIMULATION_WIDTH + x + offsetX] = 1
+          // Only cells immediately next to the reflector need the more
+          // expensive blocked-neighbour checks during the wave solve.
+          for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+            for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+              if (offsetX === 0 && offsetY === 0) continue
+              reflectorAdjacent[(y + offsetY) * BAT_SIMULATION_WIDTH + x + offsetX] = 1
+            }
           }
         }
       }
-    }
-
-    // Classify tiles once so the hot solver can take a faster path for the
-    // overwhelmingly common case: ordinary interior tiles with uniform loss
-    // and no moth geometry nearby. Guard-band tiles still use the variable-
-    // loss path, and only tiles touching the moth keep the blocked-neighbour
-    // reflector handling.
-    for (let tileIndex = 0; tileIndex < tileCount; tileIndex += 1) {
-      let kind = TILE_KIND_DAMPED
-
-      const fullLeft = tileLeft[tileIndex]
-      const fullRight = tileRight[tileIndex]
-      const fullTop = tileTop[tileIndex]
-      const fullBottom = tileBottom[tileIndex]
-
-      const uniformInteriorLoss = (
-        fullLeft >= BAT_FIELD_PADDING
-        && fullRight <= BAT_SIMULATION_WIDTH - BAT_FIELD_PADDING - 1
-        && fullTop >= BAT_FIELD_PADDING
-        && fullBottom <= BAT_SIMULATION_HEIGHT - BAT_FIELD_PADDING - 1
-      )
-
-      let touchesReflector = false
-      for (let y = fullTop; y <= fullBottom && !touchesReflector; y += 1) {
-        const row = y * BAT_SIMULATION_WIDTH
-        for (let x = fullLeft; x <= fullRight; x += 1) {
-          const index = row + x
-          if (blocked[index] || reflectorAdjacent[index]) {
-            touchesReflector = true
-            break
-          }
-        }
-      }
-
-      if (touchesReflector) kind = TILE_KIND_REFLECTOR
-      else if (uniformInteriorLoss) kind = TILE_KIND_NORMAL
-
-      tileKind[tileIndex] = kind
-    }
-
-    function measureTilePropagationFlags(
-      field: Float32Array,
-      tileIndex: number,
-    ) {
-      const edgeLeft = tileSolveLeft[tileIndex]
-      const edgeRight = tileSolveRight[tileIndex]
-      const edgeTop = tileSolveTop[tileIndex]
-      const edgeBottom = tileSolveBottom[tileIndex]
-      const propagationFloor = tilePropagationThreshold[tileIndex]
-      const strongPropagationFloor = tileStrongPropagationThreshold[tileIndex]
-      const cornerPropagationFloor = tileCornerPropagationThreshold[tileIndex]
-      const requiredEdgeSupport = tileRequiredEdgeSupport[tileIndex]
-
-      let leftSupport = 0
-      let rightSupport = 0
-      let topSupport = 0
-      let bottomSupport = 0
-      let leftPeak = 0
-      let rightPeak = 0
-      let topPeak = 0
-      let bottomPeak = 0
-
-      for (let y = edgeTop; y <= edgeBottom; y += 1) {
-        const row = y * BAT_SIMULATION_WIDTH
-        const leftAmplitude = Math.abs(field[row + edgeLeft])
-        const rightAmplitude = Math.abs(field[row + edgeRight])
-        if (leftAmplitude > leftPeak) leftPeak = leftAmplitude
-        if (rightAmplitude > rightPeak) rightPeak = rightAmplitude
-        if (leftAmplitude >= propagationFloor) leftSupport += 1
-        if (rightAmplitude >= propagationFloor) rightSupport += 1
-      }
-
-      for (let x = edgeLeft; x <= edgeRight; x += 1) {
-        const topAmplitude = Math.abs(field[edgeTop * BAT_SIMULATION_WIDTH + x])
-        const bottomAmplitude = Math.abs(field[edgeBottom * BAT_SIMULATION_WIDTH + x])
-        if (topAmplitude > topPeak) topPeak = topAmplitude
-        if (bottomAmplitude > bottomPeak) bottomPeak = bottomAmplitude
-        if (topAmplitude >= propagationFloor) topSupport += 1
-        if (bottomAmplitude >= propagationFloor) bottomSupport += 1
-      }
-
-      let flags = 0
-      if (leftSupport >= requiredEdgeSupport || leftPeak >= strongPropagationFloor) flags |= TILE_REACH_LEFT
-      if (rightSupport >= requiredEdgeSupport || rightPeak >= strongPropagationFloor) flags |= TILE_REACH_RIGHT
-      if (topSupport >= requiredEdgeSupport || topPeak >= strongPropagationFloor) flags |= TILE_REACH_TOP
-      if (bottomSupport >= requiredEdgeSupport || bottomPeak >= strongPropagationFloor) flags |= TILE_REACH_BOTTOM
-
-      const topLeftAmplitude = Math.abs(field[edgeTop * BAT_SIMULATION_WIDTH + edgeLeft])
-      const topRightAmplitude = Math.abs(field[edgeTop * BAT_SIMULATION_WIDTH + edgeRight])
-      const bottomLeftAmplitude = Math.abs(field[edgeBottom * BAT_SIMULATION_WIDTH + edgeLeft])
-      const bottomRightAmplitude = Math.abs(field[edgeBottom * BAT_SIMULATION_WIDTH + edgeRight])
-      if (topLeftAmplitude >= cornerPropagationFloor) flags |= TILE_REACH_TOP_LEFT
-      if (topRightAmplitude >= cornerPropagationFloor) flags |= TILE_REACH_TOP_RIGHT
-      if (bottomLeftAmplitude >= cornerPropagationFloor) flags |= TILE_REACH_BOTTOM_LEFT
-      if (bottomRightAmplitude >= cornerPropagationFloor) flags |= TILE_REACH_BOTTOM_RIGHT
-      return flags
-    }
-
-    // The first current field was not produced by simulateStep(), so seed the
-    // cached edge flags once from the initial pulse. From here on, each solve
-    // produces the flags for the next current field as part of the same pass.
-    for (let activeIndex = 0; activeIndex < activeTileCount; activeIndex += 1) {
-      const tileIndex = activeTileList[activeIndex]
-      tilePropagationFlags[tileIndex] = measureTilePropagationFlags(current, tileIndex)
     }
 
     function reportPhase(nextPhase: string) {
@@ -3061,65 +2682,15 @@ function BatWaveField({
     }
 
     function simulateStep() {
-      // Compute the radial packet bounds once for this timestep (and once for
-      // the next). Previously every candidate-tile check rebuilt and squared
-      // the same radii independently.
-      const travelled = waveSpeed * step
-      const outgoingInner = Math.max(0, pulseInnerRadius + travelled - packetCullMargin)
-      const outgoingOuter = pulseOuterRadius + travelled + packetCullMargin
-      const outgoingInnerSquared = outgoingInner * outgoingInner
-      const outgoingOuterSquared = outgoingOuter * outgoingOuter
-      const reflectionActive = step >= reflectionStartStep
-      const reflectedOuter = reflectionActive
-        ? (step - reflectionStartStep) * waveSpeed + packetCullMargin
-        : 0
-      const reflectedInner = reflectionActive
-        ? Math.max(0, (step - reflectionEndStep) * waveSpeed - packetCullMargin)
-        : 0
-      const reflectedInnerSquared = reflectedInner * reflectedInner
-      const reflectedOuterSquared = reflectedOuter * reflectedOuter
-
-      const nextSimulationStep = step + 1
-      const nextTravelled = waveSpeed * nextSimulationStep
-      const nextOutgoingInner = Math.max(
-        0,
-        pulseInnerRadius + nextTravelled - packetCullMargin,
-      )
-      const nextOutgoingOuter = pulseOuterRadius + nextTravelled + packetCullMargin
-      const nextOutgoingInnerSquared = nextOutgoingInner * nextOutgoingInner
-      const nextOutgoingOuterSquared = nextOutgoingOuter * nextOutgoingOuter
-      const nextReflectionActive = nextSimulationStep >= reflectionStartStep
-      const nextReflectedOuter = nextReflectionActive
-        ? (nextSimulationStep - reflectionStartStep) * waveSpeed + packetCullMargin
-        : 0
-      const nextReflectedInner = nextReflectionActive
-        ? Math.max(
-          0,
-          (nextSimulationStep - reflectionEndStep) * waveSpeed - packetCullMargin,
-        )
-        : 0
-      const nextReflectedInnerSquared = nextReflectedInner * nextReflectedInner
-      const nextReflectedOuterSquared = nextReflectedOuter * nextReflectedOuter
-
-      // Build the candidate list from the active tiles plus only the neighbours
-      // reached by the cached edge state. The edge state corresponds exactly to
-      // current[] and was collected while the previous timestep was already
-      // solving the tile, so there is no separate per-step edge scan here.
+      // Build the candidate list from the active tiles plus only those
+      // neighbours the wave can actually enter on this step. This keeps the
+      // sparse set close to the curved outgoing/reflected wave packets.
       candidateFlags.fill(0)
       let candidateTileCount = 0
 
-      function addCandidateTile(tileIndex: number) {
-        if (tileIndex < 0) return
-        if (
-          !tileCouldContainWavePacketFromBounds(
-            tileIndex,
-            outgoingInnerSquared,
-            outgoingOuterSquared,
-            reflectionActive,
-            reflectedInnerSquared,
-            reflectedOuterSquared,
-          )
-        ) return
+      function addCandidateTile(tileX: number, tileY: number) {
+        if (tileX < 0 || tileX >= tileColumns || tileY < 0 || tileY >= tileRows) return
+        const tileIndex = tileY * tileColumns + tileX
         if (candidateFlags[tileIndex]) return
         candidateFlags[tileIndex] = 1
         candidateTileList[candidateTileCount] = tileIndex
@@ -3128,41 +2699,14 @@ function BatWaveField({
 
       for (let activeIndex = 0; activeIndex < activeTileCount; activeIndex += 1) {
         const tileIndex = activeTileList[activeIndex]
-        addCandidateTile(tileIndex)
+        const tileX = tileIndex % tileColumns
+        const tileY = Math.floor(tileIndex / tileColumns)
+        addCandidateTile(tileX, tileY)
 
-        const propagationFlags = tilePropagationFlags[tileIndex]
-        if (propagationFlags & TILE_REACH_LEFT) addCandidateTile(tileNeighbourLeft[tileIndex])
-        if (propagationFlags & TILE_REACH_RIGHT) addCandidateTile(tileNeighbourRight[tileIndex])
-        if (propagationFlags & TILE_REACH_TOP) addCandidateTile(tileNeighbourTop[tileIndex])
-        if (propagationFlags & TILE_REACH_BOTTOM) addCandidateTile(tileNeighbourBottom[tileIndex])
-        if (propagationFlags & TILE_REACH_TOP_LEFT) addCandidateTile(tileNeighbourTopLeft[tileIndex])
-        if (propagationFlags & TILE_REACH_TOP_RIGHT) addCandidateTile(tileNeighbourTopRight[tileIndex])
-        if (propagationFlags & TILE_REACH_BOTTOM_LEFT) addCandidateTile(tileNeighbourBottomLeft[tileIndex])
-        if (propagationFlags & TILE_REACH_BOTTOM_RIGHT) addCandidateTile(tileNeighbourBottomRight[tileIndex])
-      }
-
-      let nextActiveTileCount = 0
-      let inactiveTileCount = 0
-
-      // A tile retained into the next active set is guaranteed to be solved on
-      // the following timestep: active tiles are always added to that step's
-      // candidate list, and the packet-bound test below already uses the exact
-      // next-step bounds. Mark those tiles so the recycled output buffer does
-      // not need to be zeroed only to be completely overwritten one step later.
-      nextSolveGuaranteedFlags.fill(0)
-
-      for (let candidateIndex = 0; candidateIndex < candidateTileCount; candidateIndex += 1) {
-        const tileIndex = candidateTileList[candidateIndex]
-        const solveLeft = tileSolveLeft[tileIndex]
-        const solveRight = tileSolveRight[tileIndex]
-        const solveTop = tileSolveTop[tileIndex]
-        const solveBottom = tileSolveBottom[tileIndex]
-        const propagationFloor = tilePropagationThreshold[tileIndex]
-        const strongPropagationFloor = tileStrongPropagationThreshold[tileIndex]
-        const cornerPropagationFloor = tileCornerPropagationThreshold[tileIndex]
-        const requiredEdgeSupport = tileRequiredEdgeSupport[tileIndex]
-
-        let tilePeak = 0
+        const edgeLeft = Math.max(1, tileX * tileSize)
+        const edgeRight = Math.min(BAT_SIMULATION_WIDTH - 2, (tileX + 1) * tileSize - 1)
+        const edgeTop = Math.max(1, tileY * tileSize)
+        const edgeBottom = Math.min(BAT_SIMULATION_HEIGHT - 2, (tileY + 1) * tileSize - 1)
         let leftSupport = 0
         let rightSupport = 0
         let topSupport = 0
@@ -3171,22 +2715,109 @@ function BatWaveField({
         let rightPeak = 0
         let topPeak = 0
         let bottomPeak = 0
-        let nextPropagationFlags = 0
-        const kind = tileKind[tileIndex]
 
-        if (kind === TILE_KIND_NORMAL) {
-          for (let y = solveTop; y <= solveBottom; y += 1) {
-            const row = y * BAT_SIMULATION_WIDTH
-            const isTopRow = y === solveTop
-            const isBottomRow = y === solveBottom
+        // A genuine wavefront normally crosses several cells of a tile edge.
+        // Require either a little spatial support or one clearly strong cell.
+        // This rejects isolated, ultra-low numerical speckles without clipping
+        // any signal that is remotely close to the visible range.
+        for (let y = edgeTop; y <= edgeBottom; y += 1) {
+          const row = y * BAT_SIMULATION_WIDTH
+          const leftAmplitude = Math.abs(current[row + edgeLeft])
+          const rightAmplitude = Math.abs(current[row + edgeRight])
+          if (leftAmplitude > leftPeak) leftPeak = leftAmplitude
+          if (rightAmplitude > rightPeak) rightPeak = rightAmplitude
+          if (leftAmplitude >= tilePropagationFloor) leftSupport += 1
+          if (rightAmplitude >= tilePropagationFloor) rightSupport += 1
+        }
 
-            for (let x = solveLeft; x <= solveRight; x += 1) {
-              const index = row + x
-              const centre = current[index]
-              const currentAmplitude = Math.abs(centre)
-              if (currentAmplitude > tilePeak) tilePeak = currentAmplitude
+        for (let x = edgeLeft; x <= edgeRight; x += 1) {
+          const topAmplitude = Math.abs(current[edgeTop * BAT_SIMULATION_WIDTH + x])
+          const bottomAmplitude = Math.abs(current[edgeBottom * BAT_SIMULATION_WIDTH + x])
+          if (topAmplitude > topPeak) topPeak = topAmplitude
+          if (bottomAmplitude > bottomPeak) bottomPeak = bottomAmplitude
+          if (topAmplitude >= tilePropagationFloor) topSupport += 1
+          if (bottomAmplitude >= tilePropagationFloor) bottomSupport += 1
+        }
 
-              const laplacian = (
+        const reachesLeft = leftSupport >= tileEdgeSupportCells || leftPeak >= tileStrongPropagationFloor
+        const reachesRight = rightSupport >= tileEdgeSupportCells || rightPeak >= tileStrongPropagationFloor
+        const reachesTop = topSupport >= tileEdgeSupportCells || topPeak >= tileStrongPropagationFloor
+        const reachesBottom = bottomSupport >= tileEdgeSupportCells || bottomPeak >= tileStrongPropagationFloor
+
+        if (reachesLeft) addCandidateTile(tileX - 1, tileY)
+        if (reachesRight) addCandidateTile(tileX + 1, tileY)
+        if (reachesTop) addCandidateTile(tileX, tileY - 1)
+        if (reachesBottom) addCandidateTile(tileX, tileY + 1)
+
+        // Diagonal coupling in the 9-point stencil is weaker than the cardinal
+        // coupling, so use a slightly firmer threshold for corner-only growth.
+        const topLeftAmplitude = Math.abs(current[edgeTop * BAT_SIMULATION_WIDTH + edgeLeft])
+        const topRightAmplitude = Math.abs(current[edgeTop * BAT_SIMULATION_WIDTH + edgeRight])
+        const bottomLeftAmplitude = Math.abs(current[edgeBottom * BAT_SIMULATION_WIDTH + edgeLeft])
+        const bottomRightAmplitude = Math.abs(current[edgeBottom * BAT_SIMULATION_WIDTH + edgeRight])
+        if (topLeftAmplitude >= tileCornerPropagationFloor) addCandidateTile(tileX - 1, tileY - 1)
+        if (topRightAmplitude >= tileCornerPropagationFloor) addCandidateTile(tileX + 1, tileY - 1)
+        if (bottomLeftAmplitude >= tileCornerPropagationFloor) addCandidateTile(tileX - 1, tileY + 1)
+        if (bottomRightAmplitude >= tileCornerPropagationFloor) addCandidateTile(tileX + 1, tileY + 1)
+      }
+
+      let nextActiveTileCount = 0
+      let inactiveTileCount = 0
+
+      for (let candidateIndex = 0; candidateIndex < candidateTileCount; candidateIndex += 1) {
+        const tileIndex = candidateTileList[candidateIndex]
+        const tileX = tileIndex % tileColumns
+        const tileY = Math.floor(tileIndex / tileColumns)
+        const solveLeft = Math.max(1, tileX * tileSize)
+        const solveRight = Math.min(BAT_SIMULATION_WIDTH - 2, (tileX + 1) * tileSize - 1)
+        const solveTop = Math.max(1, tileY * tileSize)
+        const solveBottom = Math.min(BAT_SIMULATION_HEIGHT - 2, (tileY + 1) * tileSize - 1)
+        let tilePeak = 0
+
+        for (let y = solveTop; y <= solveBottom; y += 1) {
+          const row = y * BAT_SIMULATION_WIDTH
+          for (let x = solveLeft; x <= solveRight; x += 1) {
+            const index = row + x
+            const centre = current[index]
+            const currentAmplitude = Math.abs(centre)
+            if (currentAmplitude > tilePeak) tilePeak = currentAmplitude
+
+            if (blocked[index]) {
+              next[index] = 0
+              continue
+            }
+
+            let laplacian: number
+
+            if (reflectorAdjacent[index]) {
+              // Near the reflector, preserve the original blocked-neighbour
+              // handling exactly so the reflection behaviour is unchanged.
+              const left = blocked[index - 1] ? centre : current[index - 1]
+              const right = blocked[index + 1] ? centre : current[index + 1]
+              const above = blocked[index - BAT_SIMULATION_WIDTH] ? centre : current[index - BAT_SIMULATION_WIDTH]
+              const below = blocked[index + BAT_SIMULATION_WIDTH] ? centre : current[index + BAT_SIMULATION_WIDTH]
+              const aboveLeft = blocked[index - BAT_SIMULATION_WIDTH - 1]
+                ? centre
+                : current[index - BAT_SIMULATION_WIDTH - 1]
+              const aboveRight = blocked[index - BAT_SIMULATION_WIDTH + 1]
+                ? centre
+                : current[index - BAT_SIMULATION_WIDTH + 1]
+              const belowLeft = blocked[index + BAT_SIMULATION_WIDTH - 1]
+                ? centre
+                : current[index + BAT_SIMULATION_WIDTH - 1]
+              const belowRight = blocked[index + BAT_SIMULATION_WIDTH + 1]
+                ? centre
+                : current[index + BAT_SIMULATION_WIDTH + 1]
+              laplacian = (
+                4 * (left + right + above + below)
+                + aboveLeft
+                + aboveRight
+                + belowLeft
+                + belowRight
+                - 20 * centre
+              ) / 6
+            } else {
+              laplacian = (
                 4 * (
                   current[index - 1]
                   + current[index + 1]
@@ -3199,261 +2830,29 @@ function BatWaveField({
                 + current[index + BAT_SIMULATION_WIDTH + 1]
                 - 20 * centre
               ) / 6
-
-              const nextValue = normalLossStepScale * (
-                2 * centre
-                - normalLossPreviousScale * previous[index]
-                + BAT_WAVE_C2 * laplacian
-              )
-
-              next[index] = nextValue
-              const nextAmplitude = Math.abs(nextValue)
-              if (nextAmplitude > tilePeak) tilePeak = nextAmplitude
-
-              if (isTopRow) {
-                if (nextAmplitude > topPeak) topPeak = nextAmplitude
-                if (nextAmplitude >= propagationFloor) topSupport += 1
-                if (x === solveLeft && nextAmplitude >= cornerPropagationFloor) {
-                  nextPropagationFlags |= TILE_REACH_TOP_LEFT
-                }
-                if (x === solveRight && nextAmplitude >= cornerPropagationFloor) {
-                  nextPropagationFlags |= TILE_REACH_TOP_RIGHT
-                }
-              }
-              if (isBottomRow) {
-                if (nextAmplitude > bottomPeak) bottomPeak = nextAmplitude
-                if (nextAmplitude >= propagationFloor) bottomSupport += 1
-                if (x === solveLeft && nextAmplitude >= cornerPropagationFloor) {
-                  nextPropagationFlags |= TILE_REACH_BOTTOM_LEFT
-                }
-                if (x === solveRight && nextAmplitude >= cornerPropagationFloor) {
-                  nextPropagationFlags |= TILE_REACH_BOTTOM_RIGHT
-                }
-              }
             }
 
-            const leftAmplitude = Math.abs(next[row + solveLeft])
-            const rightAmplitude = Math.abs(next[row + solveRight])
-            if (leftAmplitude > leftPeak) leftPeak = leftAmplitude
-            if (rightAmplitude > rightPeak) rightPeak = rightAmplitude
-            if (leftAmplitude >= propagationFloor) leftSupport += 1
-            if (rightAmplitude >= propagationFloor) rightSupport += 1
+            const localLoss = loss[index]
+            const nextValue = (
+              2 * centre
+              - (1 - localLoss) * previous[index]
+              + BAT_WAVE_C2 * laplacian
+            ) / (1 + localLoss)
+            next[index] = nextValue
+            const nextAmplitude = Math.abs(nextValue)
+            if (nextAmplitude > tilePeak) tilePeak = nextAmplitude
           }
-        } else if (kind === TILE_KIND_DAMPED) {
-          for (let y = solveTop; y <= solveBottom; y += 1) {
-            const row = y * BAT_SIMULATION_WIDTH
-            const isTopRow = y === solveTop
-            const isBottomRow = y === solveBottom
-
-            for (let x = solveLeft; x <= solveRight; x += 1) {
-              const index = row + x
-              const centre = current[index]
-              const currentAmplitude = Math.abs(centre)
-              if (currentAmplitude > tilePeak) tilePeak = currentAmplitude
-
-              const laplacian = (
-                4 * (
-                  current[index - 1]
-                  + current[index + 1]
-                  + current[index - BAT_SIMULATION_WIDTH]
-                  + current[index + BAT_SIMULATION_WIDTH]
-                )
-                + current[index - BAT_SIMULATION_WIDTH - 1]
-                + current[index - BAT_SIMULATION_WIDTH + 1]
-                + current[index + BAT_SIMULATION_WIDTH - 1]
-                + current[index + BAT_SIMULATION_WIDTH + 1]
-                - 20 * centre
-              ) / 6
-
-              const localLoss = loss[index]
-              const nextValue = BAT_PROPAGATION_RETENTION * (
-                2 * centre
-                - (1 - localLoss) * previous[index]
-                + BAT_WAVE_C2 * laplacian
-              ) / (1 + localLoss)
-
-              next[index] = nextValue
-              const nextAmplitude = Math.abs(nextValue)
-              if (nextAmplitude > tilePeak) tilePeak = nextAmplitude
-
-              if (isTopRow) {
-                if (nextAmplitude > topPeak) topPeak = nextAmplitude
-                if (nextAmplitude >= propagationFloor) topSupport += 1
-                if (x === solveLeft && nextAmplitude >= cornerPropagationFloor) {
-                  nextPropagationFlags |= TILE_REACH_TOP_LEFT
-                }
-                if (x === solveRight && nextAmplitude >= cornerPropagationFloor) {
-                  nextPropagationFlags |= TILE_REACH_TOP_RIGHT
-                }
-              }
-              if (isBottomRow) {
-                if (nextAmplitude > bottomPeak) bottomPeak = nextAmplitude
-                if (nextAmplitude >= propagationFloor) bottomSupport += 1
-                if (x === solveLeft && nextAmplitude >= cornerPropagationFloor) {
-                  nextPropagationFlags |= TILE_REACH_BOTTOM_LEFT
-                }
-                if (x === solveRight && nextAmplitude >= cornerPropagationFloor) {
-                  nextPropagationFlags |= TILE_REACH_BOTTOM_RIGHT
-                }
-              }
-            }
-
-            const leftAmplitude = Math.abs(next[row + solveLeft])
-            const rightAmplitude = Math.abs(next[row + solveRight])
-            if (leftAmplitude > leftPeak) leftPeak = leftAmplitude
-            if (rightAmplitude > rightPeak) rightPeak = rightAmplitude
-            if (leftAmplitude >= propagationFloor) leftSupport += 1
-            if (rightAmplitude >= propagationFloor) rightSupport += 1
-          }
-        } else {
-          for (let y = solveTop; y <= solveBottom; y += 1) {
-            const row = y * BAT_SIMULATION_WIDTH
-            const isTopRow = y === solveTop
-            const isBottomRow = y === solveBottom
-
-            for (let x = solveLeft; x <= solveRight; x += 1) {
-              const index = row + x
-              const centre = current[index]
-              const currentAmplitude = Math.abs(centre)
-              if (currentAmplitude > tilePeak) tilePeak = currentAmplitude
-
-              let nextValue = 0
-
-              if (!blocked[index]) {
-                let laplacian: number
-
-                if (reflectorAdjacent[index]) {
-                  // Approximate the moth as a partially absorbing acoustic
-                  // boundary instead of a perfectly rigid wall. The old hard
-                  // reflector used `centre` for blocked ghost cells. This Robin
-                  // boundary subtracts a small velocity-like term, giving about
-                  // the requested pressure reflection coefficient at normal
-                  // incidence while keeping timing and geometry unchanged.
-                  const reflectorGhost = centre - reflectorGhostStepFactor * (
-                    centre - previous[index]
-                  )
-                  const left = blocked[index - 1] ? reflectorGhost : current[index - 1]
-                  const right = blocked[index + 1] ? reflectorGhost : current[index + 1]
-                  const above = blocked[index - BAT_SIMULATION_WIDTH]
-                    ? reflectorGhost
-                    : current[index - BAT_SIMULATION_WIDTH]
-                  const below = blocked[index + BAT_SIMULATION_WIDTH]
-                    ? reflectorGhost
-                    : current[index + BAT_SIMULATION_WIDTH]
-                  const aboveLeft = blocked[index - BAT_SIMULATION_WIDTH - 1]
-                    ? reflectorGhost
-                    : current[index - BAT_SIMULATION_WIDTH - 1]
-                  const aboveRight = blocked[index - BAT_SIMULATION_WIDTH + 1]
-                    ? reflectorGhost
-                    : current[index - BAT_SIMULATION_WIDTH + 1]
-                  const belowLeft = blocked[index + BAT_SIMULATION_WIDTH - 1]
-                    ? reflectorGhost
-                    : current[index + BAT_SIMULATION_WIDTH - 1]
-                  const belowRight = blocked[index + BAT_SIMULATION_WIDTH + 1]
-                    ? reflectorGhost
-                    : current[index + BAT_SIMULATION_WIDTH + 1]
-                  laplacian = (
-                    4 * (left + right + above + below)
-                    + aboveLeft
-                    + aboveRight
-                    + belowLeft
-                    + belowRight
-                    - 20 * centre
-                  ) / 6
-                } else {
-                  laplacian = (
-                    4 * (
-                      current[index - 1]
-                      + current[index + 1]
-                      + current[index - BAT_SIMULATION_WIDTH]
-                      + current[index + BAT_SIMULATION_WIDTH]
-                    )
-                    + current[index - BAT_SIMULATION_WIDTH - 1]
-                    + current[index - BAT_SIMULATION_WIDTH + 1]
-                    + current[index + BAT_SIMULATION_WIDTH - 1]
-                    + current[index + BAT_SIMULATION_WIDTH + 1]
-                    - 20 * centre
-                  ) / 6
-                }
-
-                const localLoss = loss[index]
-                nextValue = BAT_PROPAGATION_RETENTION * (
-                  2 * centre
-                  - (1 - localLoss) * previous[index]
-                  + BAT_WAVE_C2 * laplacian
-                ) / (1 + localLoss)
-              }
-
-              next[index] = nextValue
-              const nextAmplitude = Math.abs(nextValue)
-              if (nextAmplitude > tilePeak) tilePeak = nextAmplitude
-
-              if (isTopRow) {
-                if (nextAmplitude > topPeak) topPeak = nextAmplitude
-                if (nextAmplitude >= propagationFloor) topSupport += 1
-                if (x === solveLeft && nextAmplitude >= cornerPropagationFloor) {
-                  nextPropagationFlags |= TILE_REACH_TOP_LEFT
-                }
-                if (x === solveRight && nextAmplitude >= cornerPropagationFloor) {
-                  nextPropagationFlags |= TILE_REACH_TOP_RIGHT
-                }
-              }
-              if (isBottomRow) {
-                if (nextAmplitude > bottomPeak) bottomPeak = nextAmplitude
-                if (nextAmplitude >= propagationFloor) bottomSupport += 1
-                if (x === solveLeft && nextAmplitude >= cornerPropagationFloor) {
-                  nextPropagationFlags |= TILE_REACH_BOTTOM_LEFT
-                }
-                if (x === solveRight && nextAmplitude >= cornerPropagationFloor) {
-                  nextPropagationFlags |= TILE_REACH_BOTTOM_RIGHT
-                }
-              }
-            }
-
-            const leftAmplitude = Math.abs(next[row + solveLeft])
-            const rightAmplitude = Math.abs(next[row + solveRight])
-            if (leftAmplitude > leftPeak) leftPeak = leftAmplitude
-            if (rightAmplitude > rightPeak) rightPeak = rightAmplitude
-            if (leftAmplitude >= propagationFloor) leftSupport += 1
-            if (rightAmplitude >= propagationFloor) rightSupport += 1
-          }
-        }
-
-        if (leftSupport >= requiredEdgeSupport || leftPeak >= strongPropagationFloor) {
-          nextPropagationFlags |= TILE_REACH_LEFT
-        }
-        if (rightSupport >= requiredEdgeSupport || rightPeak >= strongPropagationFloor) {
-          nextPropagationFlags |= TILE_REACH_RIGHT
-        }
-        if (topSupport >= requiredEdgeSupport || topPeak >= strongPropagationFloor) {
-          nextPropagationFlags |= TILE_REACH_TOP
-        }
-        if (bottomSupport >= requiredEdgeSupport || bottomPeak >= strongPropagationFloor) {
-          nextPropagationFlags |= TILE_REACH_BOTTOM
         }
 
         // Keep a tile only while either of the two states that will survive
         // the buffer rotation contains meaningful pressure. A tiny residual
         // below the display floor is discarded so old tiles can switch off.
-        if (
-          tilePeak >= tileActivityThreshold[tileIndex]
-          && tileCouldContainWavePacketFromBounds(
-            tileIndex,
-            nextOutgoingInnerSquared,
-            nextOutgoingOuterSquared,
-            nextReflectionActive,
-            nextReflectedInnerSquared,
-            nextReflectedOuterSquared,
-          )
-        ) {
+        if (tilePeak >= tileActivityFloor) {
           nextActiveTileList[nextActiveTileCount] = tileIndex
           nextActiveTileCount += 1
-          nextSolveGuaranteedFlags[tileIndex] = 1
-          tilePropagationFlags[tileIndex] = nextPropagationFlags
         } else {
           inactiveTileList[inactiveTileCount] = tileIndex
           inactiveTileCount += 1
-          tilePropagationFlags[tileIndex] = 0
         }
       }
 
@@ -3496,10 +2895,12 @@ function BatWaveField({
       // for this step still see the untouched current field.
       for (let inactiveIndex = 0; inactiveIndex < inactiveTileCount; inactiveIndex += 1) {
         const tileIndex = inactiveTileList[inactiveIndex]
-        const clearLeft = tileLeft[tileIndex]
-        const clearRight = tileRight[tileIndex]
-        const clearTop = tileTop[tileIndex]
-        const clearBottom = tileBottom[tileIndex]
+        const tileX = tileIndex % tileColumns
+        const tileY = Math.floor(tileIndex / tileColumns)
+        const clearLeft = tileX * tileSize
+        const clearRight = Math.min(BAT_SIMULATION_WIDTH - 1, (tileX + 1) * tileSize - 1)
+        const clearTop = tileY * tileSize
+        const clearBottom = Math.min(BAT_SIMULATION_HEIGHT - 1, (tileY + 1) * tileSize - 1)
 
         for (let y = clearTop; y <= clearBottom; y += 1) {
           const row = y * BAT_SIMULATION_WIDTH
@@ -3516,23 +2917,20 @@ function BatWaveField({
       current = next
       next = oldPrevious
 
-      // The recycled buffer contains the pressure state from two timesteps
-      // ago. It must be zero wherever the next solve will *not* overwrite it,
-      // otherwise stale pressure would rotate back into current[]. Persistent
-      // active tiles, however, are guaranteed to be solved completely on the
-      // following timestep, so clearing them here is pure duplicate memory
-      // traffic. Only clear old active tiles that are not guaranteed to be
-      // overwritten next time.
+      // The recycled buffer only contains old pressure in tiles that were
+      // active before this step. Clear those tiles rather than the entire
+      // 776x549 array, otherwise a full-grid fill would erase much of the
+      // benefit of solving sparsely.
       const oldActiveTileList = activeTileList
       const oldActiveTileCount = activeTileCount
       for (let oldActiveIndex = 0; oldActiveIndex < oldActiveTileCount; oldActiveIndex += 1) {
         const tileIndex = oldActiveTileList[oldActiveIndex]
-        if (nextSolveGuaranteedFlags[tileIndex]) continue
-
-        const clearLeft = tileLeft[tileIndex]
-        const clearRight = tileRight[tileIndex]
-        const clearTop = tileTop[tileIndex]
-        const clearBottom = tileBottom[tileIndex]
+        const tileX = tileIndex % tileColumns
+        const tileY = Math.floor(tileIndex / tileColumns)
+        const clearLeft = tileX * tileSize
+        const clearRight = Math.min(BAT_SIMULATION_WIDTH - 1, (tileX + 1) * tileSize - 1)
+        const clearTop = tileY * tileSize
+        const clearBottom = Math.min(BAT_SIMULATION_HEIGHT - 1, (tileY + 1) * tileSize - 1)
 
         for (let y = clearTop; y <= clearBottom; y += 1) {
           const row = y * BAT_SIMULATION_WIDTH
@@ -3638,15 +3036,11 @@ function BatWaveField({
       }
       diagnosticsPhysicsMs += performance.now() - physicsStart
 
-      const targetRenderFps = getTargetRenderFps(speedRef.current)
-      const targetRenderIntervalMs = 1000 / targetRenderFps
-      const renderDue = frame === 0 || now - lastRenderTime >= targetRenderIntervalMs
-      if ((!pausedRef.current || frame === 0) && renderDue) {
+      if (!pausedRef.current || frame === 0) {
         const renderStart = performance.now()
         renderField()
         diagnosticsRenderMs += performance.now() - renderStart
         diagnosticsRenderCount += 1
-        lastRenderTime = now
       }
 
       const diagnosticsElapsed = now - diagnosticsStart
@@ -3736,7 +3130,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
   const [mothPosition, setMothPosition] = useState({ x: 720, y: BAT_SOURCE_Y })
   const [simulationMoth, setSimulationMoth] = useState({ x: 720, y: BAT_SOURCE_Y })
   const [draggingMoth, setDraggingMoth] = useState(false)
-  const [soundSpeed, setSoundSpeed] = useState(1.3)
+  const [soundSpeed, setSoundSpeed] = useState(2)
   const [paused, setPaused] = useState(false)
   const [binaural, setBinaural] = useState(false)
   const [binauralHotkeyFlash, setBinauralHotkeyFlash] = useState(false)
@@ -4328,7 +3722,7 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
             className="bat-speed-slider"
             type="range"
             min="0.45"
-            max="3"
+            max="4"
             step="0.05"
             value={soundSpeed}
                   onChange={(event) => {
