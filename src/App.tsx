@@ -2451,7 +2451,7 @@ function makeBrainTrace(samples: number[], baseline = 116, height = 32) {
     const x = BAT_GRAPH_LEFT + (
       index / (BAT_TRACE_CAPACITY - 1)
     ) * (BAT_GRAPH_RIGHT - BAT_GRAPH_LEFT)
-    const y = baseline - Math.tanh(sample * 5.5) * height
+    const y = baseline - Math.tanh(sample * 3.2) * height
     return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)},${y.toFixed(1)}`
   }).join(' ')
 }
@@ -2541,8 +2541,16 @@ function BatWaveField({
     const pulseInnerRadius = Math.max(2, Math.round(5 / BAT_FIELD_SCALE))
     const pulseOuterRadius = Math.round(BAT_PULSE_OUTER_RADIUS / BAT_FIELD_SCALE)
     const pulseCycles = 4
-    const emissionSteps = 45
     const waveSpeed = Math.sqrt(BAT_WAVE_C2)
+    // Match the synthetic direct-call trace to the real propagated packet.
+    // The pulse occupies pulseOuterRadius - pulseInnerRadius cells, so this is
+    // how many physics steps that same four-cycle packet takes to pass an ear.
+    // Keeping both signals tied to the same spatial packet prevents the direct
+    // squeak from appearing higher-frequency than its stationary-moth echo.
+    const emissionSteps = Math.max(
+      1,
+      Math.round((pulseOuterRadius - pulseInnerRadius) / waveSpeed),
+    )
     // First-order acoustic impedance boundary for the moth. For a pressure
     // reflection coefficient R, beta=(1-R)/(1+R). With dx=dt=1 in this solver,
     // the ghost-cell correction is beta / c times the local pressure change.
@@ -2881,7 +2889,7 @@ function BatWaveField({
       if (currentStep >= emissionSteps) return 0
       const progress = currentStep / emissionSteps
       const envelope = Math.sin(Math.PI * progress) ** 2
-      return Math.sin(progress * Math.PI * 2 * pulseCycles) * envelope * 0.72
+      return Math.sin(progress * Math.PI * 2 * pulseCycles) * envelope * 0.684
     }
 
     for (let y = 0; y < BAT_SIMULATION_HEIGHT; y += 1) {
