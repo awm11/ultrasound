@@ -2435,7 +2435,7 @@ const BAT_BACKGROUND_LOSS = 0.0006
 // The moth is not an ideal rigid acoustic wall. A pressure-amplitude reflection
 // coefficient of 0.50 keeps the echo clear while allowing more incident energy to be absorbed
 // to be absorbed at the surface instead of being returned coherently.
-const BAT_MOTH_REFLECTION_COEFFICIENT = 0.50
+const BAT_MOTH_REFLECTION_COEFFICIENT = 0.70
 const BAT_PULSE_OUTER_RADIUS = 91
 const BAT_SOURCE_X = 210
 const BAT_SOURCE_Y = 333
@@ -2451,7 +2451,7 @@ function makeBrainTrace(samples: number[], baseline = 116, height = 32) {
     const x = BAT_GRAPH_LEFT + (
       index / (BAT_TRACE_CAPACITY - 1)
     ) * (BAT_GRAPH_RIGHT - BAT_GRAPH_LEFT)
-    const y = baseline - Math.tanh(sample * 3.2) * height
+    const y = baseline - Math.tanh(sample * 5.5) * height
     return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)},${y.toFixed(1)}`
   }).join(' ')
 }
