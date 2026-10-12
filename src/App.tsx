@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import BatEcholocationQuiz from './components/BatEcholocationQuiz'
+import { BrandLogo, SiteFooter } from './Branding'
 
 type Echo = { time: number; amp: number; width: number; label: string }
 type Vec = { x: number; y: number; segments?: { start: number; end: number }[] }
@@ -153,6 +154,7 @@ function LandingScreen({
 }) {
   return (
     <main className="launch-screen">
+      <BrandLogo className="launch-logo" />
       <header className="launch-header">
         <div>
           <h1>Ultrasound</h1>
@@ -196,6 +198,8 @@ function LandingScreen({
           </span>
         </button>
       </div>
+
+      <SiteFooter />
 
       <style>{`
         #root{
@@ -1452,7 +1456,8 @@ return (
 
   <div className="app">
 
-    <div className="industrial-header-row">
+    <div className="industrial-header-row has-brand">
+      <BrandLogo />
       <div className={`challenge-banner ${challengeMode ? 'active' : ''}`}>
         <span className="banner-copy">
           {challengeMode
@@ -1891,6 +1896,7 @@ return (
 
         </div>)}
 
+    <SiteFooter />
 
     <style>{`
 
@@ -4409,6 +4415,8 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           </div>
         </div>
       )}
+
+      <SiteFooter />
 
       <style>{`
         .bat-echo-screen{

@@ -1,0 +1,51 @@
+/* awm Physics branding: kept deliberately quiet so it never competes with the simulation */
+.awm-logo-link {
+  display: inline-block;
+  flex: none;
+  line-height: 0;
+  border-radius: 8px;
+  opacity: 0.75;
+  transition: opacity 0.15s ease;
+}
+.awm-logo-link:hover,
+.awm-logo-link:focus-visible { opacity: 1; }
+.awm-logo-link img {
+  width: 30px;
+  height: 30px;
+  display: block;
+}
+
+/* Landing screen: top-left corner (the fullscreen button owns bottom-right) */
+.launch-screen { position: relative; }
+.awm-logo-link.launch-logo {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+}
+
+/* Industrial testing: start of the header row */
+.industrial-header-row.has-brand {
+  grid-template-columns: auto minmax(0, 1fr) 260px;
+  align-items: center;
+}
+
+/* One line of small muted links at the very bottom */
+.awm-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 10px;
+  margin: 32px auto 0;
+  padding: 0 16px 72px; /* clear of the fixed fullscreen button */
+  color: rgba(232, 247, 251, 0.4);
+  font: 12px/1.5 Arial, sans-serif;
+}
+.awm-footer a {
+  color: rgba(232, 247, 251, 0.55);
+  text-decoration: none;
+}
+.awm-footer a:hover,
+.awm-footer a:focus-visible {
+  color: rgba(232, 247, 251, 0.9);
+  text-decoration: underline;
+}
