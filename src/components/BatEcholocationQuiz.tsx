@@ -15,6 +15,12 @@ import {
   recogniseUnitWithOnnx,
   warmOnnxUnitRecognizer,
 } from "./onnxUnitRecognizer";
+import {
+  WORKING_HELP_LEFT_SPACE,
+  WORKING_HELP_TOTAL_WIDTH,
+  copyAnswerSheet,
+  paintWorking,
+} from "./batAnswerSheet";
 
 import bat1 from "../assets/bat_1.jpg";
 import bat2 from "../assets/bat_2.jpg";
@@ -98,15 +104,6 @@ const WORKING_HELP = [
   { distance: "0.079", speed: "speed", time: "0.00010" },
   { distance: "0.68", time: "time" },
 ];
-
-const WORKING_HELP_COLOURS = {
-  distance: "#7c3aed",
-  speed: "#047857",
-  time: "#c2410c",
-};
-
-const WORKING_HELP_LEFT_SPACE = 0.65;
-const WORKING_HELP_TOTAL_WIDTH = 1 + WORKING_HELP_LEFT_SPACE;
 
 const UNIT_REQUIRED_FROM_INDEX = 2;
 
@@ -261,8 +258,12 @@ function getSession() {
       autoShowBatPictures: true,
       wrongAttempts: QUESTIONS.map(() => 0),
       workingHelpShown: QUESTIONS.map(() => false),
+      attempted: QUESTIONS.map(() => false),
+      workingSize: null,
     };
   }
+
+  SESSION_CACHE.attempted ??= QUESTIONS.map(() => false);
 
   SESSION_CACHE.wrongAttempts ??= QUESTIONS.map(() => 0);
   SESSION_CACHE.workingHelpShown ??= QUESTIONS.map(() => false);
@@ -318,6 +319,9 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   const [workingHelpShown, setWorkingHelpShown] = useState(() => [
     ...session.workingHelpShown,
   ]);
+  const [attempted, setAttempted] = useState(() => [...session.attempted]);
+  const [copyStatus, setCopyStatus] = useState("");
+  const copyStatusTimerRef = useRef(null);
 
   const seenRewardsRef = useRef(new Set(session.seenRewards));
   const drawingsRef = useRef(session.drawings);
@@ -405,6 +409,17 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   }, [wrongAttempts, session]);
 
   useEffect(() => {
+    session.attempted = attempted;
+  }, [attempted, session]);
+
+  useEffect(
+    () => () => {
+      if (copyStatusTimerRef.current) window.clearTimeout(copyStatusTimerRef.current);
+    },
+    []
+  );
+
+  useEffect(() => {
     session.workingHelpShown = workingHelpShown;
     workingHelpShownRef.current = workingHelpShown;
   }, [workingHelpShown, session]);
@@ -429,109 +444,8 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     const helpValues = workingHelpShownRef.current[currentIndexRef.current]
       ? WORKING_HELP[currentIndexRef.current]
       : null;
-    const originalWidth = helpValues
-      ? rect.width / WORKING_HELP_TOTAL_WIDTH
-      : rect.width;
-
-    if (helpValues) {
-      let fontSize = Math.max(22, Math.min(32, originalWidth * 0.043));
-      const helpLines = [
-        [
-          { text: "distance", quantity: "distance" },
-          { text: " = ½ × " },
-          { text: "speed", quantity: "speed" },
-          { text: " × " },
-          { text: "time", quantity: "time" },
-        ],
-        [
-          { text: helpValues.distance, quantity: "distance" },
-          { text: " = ½ × " },
-          { text: helpValues.speed ?? "340", quantity: "speed" },
-          { text: " × " },
-          { text: helpValues.time, quantity: "time" },
-        ],
-      ];
-
-      ctx.save();
-      ctx.globalCompositeOperation = "source-over";
-      ctx.font = `600 ${fontSize}px "Segoe Print", "Comic Sans MS", sans-serif`;
-      ctx.textBaseline = "top";
-      const helpAreaWidth = originalWidth * WORKING_HELP_LEFT_SPACE;
-      const widestLine = Math.max(
-        ...helpLines.map((segments) =>
-          segments.reduce(
-            (total, segment) => total + ctx.measureText(segment.text).width,
-            0
-          )
-        )
-      );
-      if (widestLine > helpAreaWidth - 32) {
-        fontSize = Math.max(17, fontSize * ((helpAreaWidth - 32) / widestLine));
-        ctx.font = `600 ${fontSize}px "Segoe Print", "Comic Sans MS", sans-serif`;
-      }
-
-      helpLines.forEach((segments, index) => {
-        const lineWidth = segments.reduce(
-          (total, segment) => total + ctx.measureText(segment.text).width,
-          0
-        );
-        let x = (helpAreaWidth - lineWidth) / 2;
-        const y = rect.height * 0.08 + index * fontSize * 1.65;
-
-        segments.forEach((segment) => {
-          ctx.fillStyle = segment.quantity
-            ? WORKING_HELP_COLOURS[segment.quantity]
-            : "#172554";
-          ctx.fillText(segment.text, x, y);
-          x += ctx.measureText(segment.text).width;
-        });
-      });
-      ctx.restore();
-    }
-
     const strokes = drawingsRef.current[currentIndexRef.current] || [];
-
-    strokes.forEach((stroke) => {
-      if (!stroke.points.length) return;
-
-      ctx.save();
-      ctx.globalCompositeOperation = stroke.mode === "erase" ? "destination-out" : "source-over";
-      ctx.strokeStyle = "#111827";
-      ctx.fillStyle = "#111827";
-      ctx.lineWidth = stroke.mode === "erase" ? 24 : 3;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
-      const first = stroke.points[0];
-      const renderX = (x) =>
-        helpValues
-          ? (WORKING_HELP_LEFT_SPACE + x) * originalWidth
-          : x * rect.width;
-
-      if (stroke.points.length === 1) {
-        ctx.beginPath();
-        ctx.arc(
-          renderX(first.x),
-          first.y * rect.height,
-          stroke.mode === "erase" ? 12 : 1.5,
-          0,
-          Math.PI * 2
-        );
-        ctx.fill();
-      } else {
-        ctx.beginPath();
-        ctx.moveTo(renderX(first.x), first.y * rect.height);
-
-        for (let i = 1; i < stroke.points.length; i += 1) {
-          const point = stroke.points[i];
-          ctx.lineTo(renderX(point.x), point.y * rect.height);
-        }
-
-        ctx.stroke();
-      }
-
-      ctx.restore();
-    });
+    paintWorking(ctx, rect.width, rect.height, strokes, helpValues);
   }, []);
 
   const resizeCanvas = useCallback(() => {
@@ -549,6 +463,15 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
       canvas.width = width;
       canvas.height = height;
     }
+
+    // Remember the on-screen working area size (without the help margin) so
+    // "Copy my answers" can redraw every question's working at the same shape.
+    sessionRef.current.workingSize = {
+      width: workingHelpShownRef.current[currentIndexRef.current]
+        ? rect.width / WORKING_HELP_TOTAL_WIDTH
+        : rect.width,
+      height: rect.height,
+    };
 
     redraw();
   }, [redraw]);
@@ -1054,6 +977,13 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
       ) <= parsedAnswer.toleranceInBaseUnits;
 
     setChecked((previous) => {
+      const next = [...previous];
+      next[currentIndex] = true;
+      return next;
+    });
+
+    setAttempted((previous) => {
+      if (previous[currentIndex]) return previous;
       const next = [...previous];
       next[currentIndex] = true;
       return next;
@@ -1771,6 +1701,85 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     redraw();
   };
 
+  const attemptedCount = attempted.filter(Boolean).length;
+
+  const getAnswerText = (index) => {
+    const question = QUESTIONS[index];
+    const number = String(answers[index] ?? "").trim();
+    const unit = String(units[index] ?? "").trim();
+    if (!number) return "";
+    if (index < UNIT_REQUIRED_FROM_INDEX) {
+      return /[a-z]/i.test(number) ? number : `${number} ${question.unit}`;
+    }
+    // Typed answers already include their unit; handwritten ones keep it separately.
+    return /[a-z]/i.test(number) ? number : `${number} ${unit}`.trim();
+  };
+
+  const handleCopyAnswers = async () => {
+    if (!attemptedCount) return;
+
+    const entries = QUESTIONS.map((question, index) => ({ question, index }))
+      .filter(({ index }) => attempted[index])
+      .map(({ question, index }) => ({
+        number: index + 1,
+        text: question.text,
+        answerText: getAnswerText(index),
+        status: correct[index] ? "correct" : checked[index] ? "wrong" : "unchecked",
+        wrongAttempts: wrongAttempts[index],
+        helpUsed: workingHelpShown[index],
+        strokes: drawingsRef.current[index] || [],
+        helpValues: workingHelpShown[index] ? WORKING_HELP[index] : null,
+      }));
+
+    const when = new Date().toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+
+    if (copyStatusTimerRef.current) window.clearTimeout(copyStatusTimerRef.current);
+    setCopyStatus("working");
+
+    let result;
+    try {
+      result = await copyAnswerSheet({
+        title: "Bat echolocation: echo calculations",
+        subtitle: `distance = ½ × speed × time · speed of sound in air = 340 m/s · ${when}`,
+        entries,
+        totalQuestions: QUESTIONS.length,
+        baseSize: session.workingSize || { width: 640, height: 420 },
+        footer: "alexmoorephysics.com/ultrasound",
+      });
+    } catch {
+      result = "failed";
+    }
+
+    setCopyStatus(result);
+    copyStatusTimerRef.current = window.setTimeout(() => setCopyStatus(""), 3000);
+  };
+
+  const copyButtonLabel =
+    copyStatus === "working"
+      ? "Copying…"
+      : copyStatus === "copied"
+        ? "Copied ✓"
+        : copyStatus === "downloaded"
+          ? "Saved as image ✓"
+          : copyStatus === "failed"
+            ? "Couldn't copy, try again"
+            : "Copy my answers";
+
+  const copyAnswersButton = attemptedCount ? (
+    <button
+      type="button"
+      className="batQuiz__button batQuiz__button--ghost batQuiz__copyAnswers"
+      onClick={handleCopyAnswers}
+      disabled={copyStatus === "working"}
+      title="Copy a picture of your questions, answers and working"
+    >
+      <span aria-live="polite">{copyButtonLabel}</span>
+    </button>
+  ) : null;
+
   const reward = activeReward === null ? null : rewardPlan[activeReward];
   const isFinalReward = reward?.afterQuestion === QUESTIONS.length;
   const currentAnswerInk = answerInkStrokesRef.current[currentIndex] || [];
@@ -2080,6 +2089,8 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
                 ← Previous question
               </button>
 
+              {copyAnswersButton}
+
               <button
                 type="button"
                 className="batQuiz__button batQuiz__button--cyan"
@@ -2152,6 +2163,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
                     >
                       Review questions
                     </button>
+                    {copyAnswersButton}
                     {onFinish ? (
                       <button
                         type="button"
