@@ -471,6 +471,7 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
     swapped,
     autoShowBatPictures,
     activeReward,
+    answerEntryMode,
     scheduleSave,
   ]);
 

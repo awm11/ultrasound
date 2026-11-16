@@ -71,6 +71,7 @@ export function saveSession(session) {
       currentIndex: session.currentIndex,
       swapped: session.swapped,
       autoShowBatPictures: session.autoShowBatPictures,
+      answerEntryMode: session.answerEntryMode,
       seenRewards: session.seenRewards,
       drawings: packWorking(session.drawings),
       answerInkStrokes: packInk(session.answerInkStrokes),
@@ -121,6 +122,9 @@ export function loadSavedSession(questionCount) {
     SIMPLE_ARRAYS.forEach((key) => {
       restored[key] = [...data[key]];
     });
+    if (data.answerEntryMode === "type" || data.answerEntryMode === "write") {
+      restored.answerEntryMode = data.answerEntryMode;
+    }
     return restored;
   } catch {
     return null;
