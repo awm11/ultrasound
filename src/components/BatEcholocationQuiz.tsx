@@ -260,6 +260,7 @@ function getSession() {
       workingHelpShown: QUESTIONS.map(() => false),
       attempted: QUESTIONS.map(() => false),
       workingSize: null,
+      answerEntryMode: "write",
     };
   }
 
@@ -300,7 +301,14 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   const [swapped, setSwapped] = useState(session.swapped);
   const [activeReward, setActiveReward] = useState(session.activeReward);
   const [answerInkMessage, setAnswerInkMessage] = useState("");
-  const [answerEntryMode, setAnswerEntryMode] = useState("write");
+  // Typing vs handwriting is the student's choice and carries over to every question.
+  const [answerEntryMode, setAnswerEntryMode] = useState(() =>
+    session.answerEntryMode === "type" ? "type" : "write"
+  );
+
+  useEffect(() => {
+    session.answerEntryMode = answerEntryMode;
+  }, [answerEntryMode, session]);
   const [recognisedAnswers, setRecognisedAnswers] = useState(() => [
     ...session.recognisedAnswers,
   ]);
@@ -689,7 +697,6 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     unitInkPointerIdRef.current = null;
     unitInkErasingRef.current = false;
     setAnswerInkMessage("");
-    setAnswerEntryMode("write");
     window.requestAnimationFrame(redrawAnswerInk);
     window.requestAnimationFrame(redrawUnitInk);
   }, [currentIndex, redrawAnswerInk, redrawUnitInk]);
