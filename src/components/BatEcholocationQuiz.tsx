@@ -238,6 +238,8 @@ function createRewardPlan() {
 
 let SESSION_CACHE = null;
 
+const HELP_DELAY_MS = 10000;
+
 function getSession() {
   if (!SESSION_CACHE) {
     SESSION_CACHE = {
@@ -292,6 +294,14 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   const rewardPlan = session.rewardPlan;
 
   const [currentIndex, setCurrentIndex] = useState(session.currentIndex);
+
+  // "Help me get started" appears after a short think on each question.
+  const [helpReady, setHelpReady] = useState(false);
+  useEffect(() => {
+    setHelpReady(false);
+    const timer = window.setTimeout(() => setHelpReady(true), HELP_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [currentIndex]);
   const [answers, setAnswers] = useState(() => [...session.answers]);
   const [units, setUnits] = useState(() => [...session.units]);
   const [checked, setChecked] = useState(() => [...session.checked]);
@@ -2023,8 +2033,8 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
                     ) : null}
 
                     {currentIndex < WORKING_HELP.length &&
-                    wrongAttempts[currentIndex] >= 2 &&
-                    !correct[currentIndex] ? (
+                    !correct[currentIndex] &&
+                    (helpReady || workingHelpShown[currentIndex]) ? (
                       <button
                         type="button"
                         className="batQuiz__stuckButton"
