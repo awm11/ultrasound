@@ -1795,11 +1795,18 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   const copyAnswersButton = attemptedCount ? (
     <button
       type="button"
-      className="batQuiz__button batQuiz__button--ghost batQuiz__copyAnswers"
+      className={`batQuiz__button batQuiz__copyAnswers ${
+        copyStatus === "copied" || copyStatus === "downloaded" ? "is-done" : ""
+      }`}
       onClick={handleCopyAnswers}
       disabled={copyStatus === "working"}
       title="Copy a picture of your questions, answers and working"
     >
+      <svg className="batQuiz__copyIcon" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="8" y="3" width="8" height="4" rx="1.2" />
+        <path d="M8 5H6.5A1.5 1.5 0 0 0 5 6.5v13A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5v-13A1.5 1.5 0 0 0 17.5 5H16" />
+        <path d="m9 14 2 2 4-4" />
+      </svg>
       <span aria-live="polite">{copyButtonLabel}</span>
     </button>
   ) : null;
