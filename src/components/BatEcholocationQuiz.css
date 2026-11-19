@@ -453,6 +453,7 @@
 }
 
 .batQuiz__stuckButton {
+  animation: batQuizHelpAppear 0.4s ease-out;
   width: 100%;
   margin-top: 10px;
   padding: 10px 14px;
@@ -760,7 +761,22 @@
   }
 }
 
+@keyframes batQuizHelpAppear {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .batQuiz__stuckButton {
+    animation: none;
+  }
+
   .batQuiz__dot,
   .batQuiz__inkStatus {
     transition: none;
