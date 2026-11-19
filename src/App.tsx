@@ -4852,16 +4852,50 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
   )
 }
 
+type Screen = 'home' | 'testing' | 'bat'
+
+// alexmoorephysics.com/ultrasound/#testing and /#bat link straight to each page.
+function screenFromHash(): Screen {
+  const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase()
+  if (hash === 'testing') return 'testing'
+  if (hash === 'bat') return 'bat'
+  return 'home'
+}
+
 export default function App() {
-  const [screen, setScreen] = useState<'home' | 'testing' | 'bat'>('home')
+  const [screen, setScreen] = useState<Screen>(screenFromHash)
+
+  // Follow the address bar, including the browser's back and forward buttons.
+  useEffect(() => {
+    const handleHashChange = () => setScreen(screenFromHash())
+    window.addEventListener('hashchange', handleHashChange)
+    window.addEventListener('popstate', handleHashChange)
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange)
+      window.removeEventListener('popstate', handleHashChange)
+    }
+  }, [])
+
+  const goTo = (next: Screen) => {
+    if (next === screenFromHash()) {
+      setScreen(next)
+      return
+    }
+    const url = next === 'home'
+      ? `${window.location.pathname}${window.location.search}`
+      : `#${next}`
+    window.history.pushState(null, '', url)
+    setScreen(next)
+    window.scrollTo(0, 0)
+  }
 
   if (screen === 'home') {
     return (
       <>
         <FullscreenButton />
         <LandingScreen
-          onIndustrialTesting={() => setScreen('testing')}
-          onBatEcholocation={() => setScreen('bat')}
+          onIndustrialTesting={() => goTo('testing')}
+          onBatEcholocation={() => goTo('bat')}
         />
       </>
     )
@@ -4871,8 +4905,8 @@ export default function App() {
     <>
       <FullscreenButton />
       {screen === 'testing'
-        ? <UltrasoundTestingScreen onNext={() => setScreen('bat')} />
-        : <BatEcholocationScreen onBack={() => setScreen('testing')} />}
+        ? <UltrasoundTestingScreen onNext={() => goTo('bat')} />
+        : <BatEcholocationScreen onBack={() => goTo('testing')} />}
     </>
   )
 }
