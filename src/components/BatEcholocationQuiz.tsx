@@ -21,6 +21,7 @@ import {
   copyAnswerSheet,
   paintWorking,
 } from "./batAnswerSheet";
+import { clearSavedSession, loadSavedSession, saveSession } from "./batQuizStorage";
 
 import bat1 from "../assets/bat_1.jpg";
 import bat2 from "../assets/bat_2.jpg";
@@ -273,6 +274,8 @@ function getSession() {
       attempted: QUESTIONS.map(() => false),
       workingSize: null,
     };
+    // Pick up where the student left off after a refresh or closed window.
+    Object.assign(SESSION_CACHE, loadSavedSession(QUESTIONS.length) || {});
   }
 
   SESSION_CACHE.attempted ??= QUESTIONS.map(() => false);
@@ -297,7 +300,19 @@ function SwapIcon() {
   );
 }
 
-export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
+export default function BatEcholocationQuiz(props) {
+  // Changing the key remounts the quiz with a fresh session after "Start again".
+  const [sessionKey, setSessionKey] = useState(0);
+  return (
+    <BatEcholocationQuizSession
+      key={sessionKey}
+      {...props}
+      onRestart={() => setSessionKey((key) => key + 1)}
+    />
+  );
+}
+
+function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
   // Module-level session state survives closing/reopening the component and is cleared by a page refresh.
   const sessionRef = useRef(getSession());
   const session = sessionRef.current;
@@ -431,6 +446,80 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
   useEffect(() => {
     session.attempted = attempted;
   }, [attempted, session]);
+
+  // ---- Saving progress to the browser ----
+  const saveTimerRef = useRef(null);
+  const saveDirtyRef = useRef(false);
+  const sessionDiscardedRef = useRef(false);
+  const firstSaveEffectRef = useRef(true);
+
+  const saveNow = useCallback(() => {
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    if (!saveDirtyRef.current || sessionDiscardedRef.current) return;
+    saveDirtyRef.current = false;
+    saveSession(sessionRef.current);
+  }, []);
+
+  const scheduleSave = useCallback(() => {
+    if (sessionDiscardedRef.current) return;
+    saveDirtyRef.current = true;
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(saveNow, 400);
+  }, [saveNow]);
+
+  useEffect(() => {
+    // Opening the quiz isn't a change, so it doesn't extend the save's expiry.
+    if (firstSaveEffectRef.current) {
+      firstSaveEffectRef.current = false;
+      return;
+    }
+    scheduleSave();
+  }, [
+    answers,
+    units,
+    checked,
+    correct,
+    attempted,
+    wrongAttempts,
+    workingHelpShown,
+    recognisedAnswers,
+    recognisedUnits,
+    currentIndex,
+    swapped,
+    autoShowBatPictures,
+    activeReward,
+    answerEntryMode,
+    scheduleSave,
+  ]);
+
+  useEffect(() => {
+    const handleHide = () => {
+      if (document.visibilityState === "hidden") saveNow();
+    };
+    window.addEventListener("pagehide", saveNow);
+    document.addEventListener("visibilitychange", handleHide);
+    return () => {
+      window.removeEventListener("pagehide", saveNow);
+      document.removeEventListener("visibilitychange", handleHide);
+      saveNow();
+    };
+  }, [saveNow]);
+
+  const handleRestart = () => {
+    if (
+      !window.confirm("Start again? This clears all your answers and working.")
+    ) {
+      return;
+    }
+    sessionDiscardedRef.current = true;
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    clearSavedSession();
+    SESSION_CACHE = null;
+    onRestart?.();
+  };
 
   useEffect(
     () => () => {
@@ -1542,6 +1631,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     if (surface?.hasPointerCapture(event.pointerId)) {
       surface.releasePointerCapture(event.pointerId);
     }
+    scheduleSave();
 
     if (wasErasing) {
       const strokesRemain = (answerInkStrokesRef.current[currentIndexRef.current] || []).length > 0;
@@ -1671,6 +1761,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     unitInkPointerIdRef.current = null;
     unitInkErasingRef.current = false;
     if (surface?.hasPointerCapture(event.pointerId)) surface.releasePointerCapture(event.pointerId);
+    scheduleSave();
 
     const strokesRemain = (unitInkStrokesRef.current[currentIndexRef.current] || []).length > 0;
     if (strokesRemain) {
@@ -1715,6 +1806,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     if (canvas?.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
     }
+    scheduleSave();
   };
 
   const clearWorking = () => {
@@ -1723,6 +1815,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
     drawingRef.current = false;
     activeStrokeRef.current = null;
     redraw();
+    scheduleSave();
   };
 
   const attemptedCount = attempted.filter(Boolean).length;
@@ -1849,6 +1942,15 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
                     />
                   ))}
                 </div>
+                {attemptedCount > 0 || answers.some(Boolean) || currentIndex > 0 ? (
+                  <button
+                    type="button"
+                    className="batQuiz__restart"
+                    onClick={handleRestart}
+                  >
+                    Start again
+                  </button>
+                ) : null}
               </div>
             </div>
 

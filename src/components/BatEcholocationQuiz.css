@@ -93,6 +93,29 @@
   font-weight: 650;
 }
 
+.batQuiz .batQuiz__restart {
+  padding: 4px 2px;
+  border: 0;
+  background: none;
+  color: #9fb3c8;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.batQuiz .batQuiz__restart:hover {
+  color: var(--bat-white);
+}
+
+.batQuiz .batQuiz__restart:focus-visible {
+  outline: 3px solid #29d3f2;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .batQuiz__dots {
   display: flex;
   align-items: center;
