@@ -273,6 +273,7 @@ function getSession() {
       workingHelpShown: QUESTIONS.map(() => false),
       attempted: QUESTIONS.map(() => false),
       workingSize: null,
+      answerEntryMode: "write",
     };
     // Pick up where the student left off after a refresh or closed window.
     Object.assign(SESSION_CACHE, loadSavedSession(QUESTIONS.length) || {});
@@ -335,7 +336,14 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
   const [swapped, setSwapped] = useState(session.swapped);
   const [activeReward, setActiveReward] = useState(session.activeReward);
   const [answerInkMessage, setAnswerInkMessage] = useState("");
-  const [answerEntryMode, setAnswerEntryMode] = useState("write");
+  // Typing vs handwriting is the student's choice and carries over to every question.
+  const [answerEntryMode, setAnswerEntryMode] = useState(() =>
+    session.answerEntryMode === "type" ? "type" : "write"
+  );
+
+  useEffect(() => {
+    session.answerEntryMode = answerEntryMode;
+  }, [answerEntryMode, session]);
   const [recognisedAnswers, setRecognisedAnswers] = useState(() => [
     ...session.recognisedAnswers,
   ]);
@@ -798,7 +806,6 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
     unitInkPointerIdRef.current = null;
     unitInkErasingRef.current = false;
     setAnswerInkMessage("");
-    setAnswerEntryMode("write");
     window.requestAnimationFrame(redrawAnswerInk);
     window.requestAnimationFrame(redrawUnitInk);
   }, [currentIndex, redrawAnswerInk, redrawUnitInk]);
