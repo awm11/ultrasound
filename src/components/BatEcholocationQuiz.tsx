@@ -173,10 +173,20 @@ function parseAnswerQuantity(raw, question, unitRequired) {
   if (!Number.isFinite(value) || value < 0) return { error: "invalid" };
 
   const unitText = match[2] ? normalizeUnit(match[2]) : "";
-  if (unitRequired && !unitText) return { error: "missing-unit" };
-
   const factors = UNIT_FACTORS[question.quantity];
   const canonicalFactor = factors[normalizeUnit(question.unit)];
+
+  if (unitRequired && !unitText) {
+    // Would this number be right in any unit of the right kind (e.g. 4250 for
+    // 4.25 m in mm, or 0.03 for 30 ms in s)? If so, nudge them to add the unit.
+    const answerInBase = question.answer * canonicalFactor;
+    const toleranceInBase = question.tolerance * canonicalFactor;
+    const couldBeRight = [...new Set(Object.values(factors))].some(
+      (factor) => Math.abs(value * factor - answerInBase) <= toleranceInBase * (1 + 1e-9)
+    );
+    return { error: "missing-unit", couldBeRight };
+  }
+
   const enteredFactor = unitText ? factors[unitText] : canonicalFactor;
   if (enteredFactor === undefined) return { error: "wrong-unit" };
 
@@ -965,7 +975,11 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
 
     if (parsedAnswer.error) {
       const errorText =
-        parsedAnswer.error === "missing-unit"
+        parsedAnswer.error === "missing-unit" && parsedAnswer.couldBeRight
+          ? answerEntryMode === "write"
+            ? "That number could be right. Write its unit in the unit box."
+            : "That number could be right. What's the unit? Add it to your answer."
+          : parsedAnswer.error === "missing-unit"
           ? answerEntryMode === "write"
             ? "Write a unit in the unit box before checking."
             : "Include a unit in your answer before checking."
