@@ -2015,9 +2015,7 @@ export default function BatEcholocationQuiz({ onFinish, onRewardChange }) {
                       </div>
                     ) : null}
 
-                    {currentIndex < WORKING_HELP.length &&
-                    wrongAttempts[currentIndex] >= 2 &&
-                    !correct[currentIndex] ? (
+                    {currentIndex < WORKING_HELP.length && !correct[currentIndex] ? (
                       <button
                         type="button"
                         className="batQuiz__stuckButton"
