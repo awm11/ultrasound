@@ -54,7 +54,7 @@ function PageSwitcher({
   )
 }
 
-function FullscreenButton() {
+function useFullscreen() {
   const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement))
   const fullscreenAvailable = Boolean(document.fullscreenEnabled)
 
@@ -76,29 +76,42 @@ function FullscreenButton() {
     }
   }
 
+  return { isFullscreen, fullscreenAvailable, toggleFullscreen }
+}
+
+// The same full screen toggle as the corner button, styled to sit wherever
+// it's placed (used beside the quiz's close button).
+function FullscreenToggle({ className }: { className: string }) {
+  const { isFullscreen, fullscreenAvailable, toggleFullscreen } = useFullscreen()
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={(event) => {
+        void toggleFullscreen()
+        event.currentTarget.blur()
+      }}
+      disabled={!fullscreenAvailable}
+      aria-label={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
+      title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+    >
+      {isFullscreen ? (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9 4v5H4 M15 4v5h5 M9 20v-5H4 M15 20v-5h5" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9 4H4v5 M15 4h5v5 M9 20H4v-5 M15 20h5v-5" />
+        </svg>
+      )}
+    </button>
+  )
+}
+
+function FullscreenButton() {
   return (
     <>
-      <button
-        type="button"
-        className="fullscreen-button"
-        onClick={(event) => {
-          void toggleFullscreen()
-          event.currentTarget.blur()
-        }}
-        disabled={!fullscreenAvailable}
-        aria-label={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
-        title={isFullscreen ? 'Exit full screen' : 'Full screen'}
-      >
-        {isFullscreen ? (
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M9 4v5H4 M15 4v5h5 M9 20v-5H4 M15 20v-5h5" />
-          </svg>
-        ) : (
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M9 4H4v5 M15 4h5v5 M9 20H4v-5 M15 20h5v-5" />
-          </svg>
-        )}
-      </button>
+      <FullscreenToggle className="fullscreen-button" />
       <style>{`
         .fullscreen-button{
           position:fixed;
@@ -4399,15 +4412,18 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
             ref={quizPanelRef}
             className={`bat-quiz-modal-panel ${quizShowingReward ? 'is-reward' : ''}`}
           >
-            <button
-              className="bat-quiz-close"
-              type="button"
-              onClick={closeQuiz}
-              aria-label="Close quiz"
-              autoFocus
-            >
-              ×
-            </button>
+            <div className="bat-quiz-controls">
+              <FullscreenToggle className="bat-quiz-fullscreen" />
+              <button
+                className="bat-quiz-close"
+                type="button"
+                onClick={closeQuiz}
+                aria-label="Close quiz"
+                autoFocus
+              >
+                ×
+              </button>
+            </div>
             <BatEcholocationQuiz
               onFinish={closeQuiz}
               onRewardChange={setQuizShowingReward}
@@ -4776,14 +4792,19 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
           min-height:0;
         }
 
-        .bat-quiz-close{
+        .bat-quiz-controls{
           position:sticky;
           top:12px;
           float:right;
           z-index:4;
+          display:flex;
+          gap:8px;
+          margin:12px 12px -54px 0;
+        }
+
+        .bat-quiz-close{
           width:42px;
           height:42px;
-          margin:12px 12px -54px 0;
           border:1px solid #668098;
           border-radius:50%;
           background:#132a40;
@@ -4794,6 +4815,46 @@ function BatEcholocationScreen({ onBack }: { onBack: () => void }) {
         }
 
         .bat-quiz-close:hover{ background:#1e3d58; }
+
+        .bat-quiz-fullscreen{
+          width:42px;
+          height:42px;
+          display:grid;
+          place-items:center;
+          padding:0;
+          border:1px solid #668098;
+          border-radius:50%;
+          background:#132a40;
+          color:#fff;
+          cursor:pointer;
+          box-shadow:0 5px 16px rgba(0,0,0,.35);
+        }
+
+        .bat-quiz-fullscreen:hover{ background:#1e3d58; }
+
+        .bat-quiz-fullscreen:focus-visible{
+          outline:3px solid #22d3ee;
+          outline-offset:2px;
+        }
+
+        .bat-quiz-fullscreen:disabled{ display:none; }
+
+        /* Room for the full screen and close buttons above the quiz title. */
+        @media (max-width: 520px){
+          .bat-quiz-modal-panel:has(.bat-quiz-fullscreen:not(:disabled)) .batQuiz__top{
+            padding-top:44px;
+          }
+        }
+
+        .bat-quiz-fullscreen svg{
+          width:22px;
+          height:22px;
+          fill:none;
+          stroke:currentColor;
+          stroke-width:2;
+          stroke-linecap:round;
+          stroke-linejoin:round;
+        }
 
         .bat-quiz-close:focus-visible{
           outline:3px solid #22d3ee;
