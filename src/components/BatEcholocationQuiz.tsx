@@ -159,6 +159,66 @@ function normalizeUnit(unit) {
   return unit.toLowerCase().replace(/μ/g, "µ").replace(/\./g, "");
 }
 
+const SPEED_IN_AIR = 340;
+const SPEED_IN_WATER = 1500;
+
+const near = (value, target, relativeTolerance = 0.02) =>
+  Math.abs(value - target) <= Math.abs(target) * relativeTolerance;
+
+// Looks for common slips behind a wrong answer that had a valid unit, and
+// returns a hint, or null to fall back to the general "number is wrong".
+function diagnoseWrongAnswer(question, parsed) {
+  const { valueInBaseUnits: valueInBase, answerInBaseUnits: answerInBase } = parsed;
+
+  // Right number, wrong unit (e.g. 3.4 mm for 3.4 m, or 30 s for 30 ms).
+  if (Math.abs(parsed.enteredValue - question.answer) <= question.tolerance) {
+    return "Check the unit.";
+  }
+
+  // Used 340 m/s instead of 1500 m/s (or the other way round). Distance is
+  // proportional to speed, time inversely proportional.
+  if (question.quantity === "distance" || question.quantity === "time") {
+    const rightSpeed = question.speed ?? SPEED_IN_AIR;
+    const wrongSpeed = rightSpeed === SPEED_IN_AIR ? SPEED_IN_WATER : SPEED_IN_AIR;
+    const ratio =
+      question.quantity === "distance" ? wrongSpeed / rightSpeed : rightSpeed / wrongSpeed;
+    if (near(valueInBase, answerInBase * ratio)) {
+      return "Check which speed of sound to use.";
+    }
+  }
+
+  const outBy = (factor) =>
+    near(valueInBase, answerInBase * factor) || near(valueInBase, answerInBase / factor);
+
+  // Out by a factor of 1000 on a question that involves milliseconds.
+  const involvesMs = /\d\s*ms\b/.test(question.text) || question.unit === "ms";
+  if (involvesMs && outBy(1000)) {
+    return "Did you convert between ms and s?";
+  }
+
+  // Out by a factor of 100 on a question that gives a length in cm.
+  const involvesCm = /\d\s*cm\b/.test(question.text);
+  if (involvesCm && outBy(100)) {
+    return "Did you convert cm to m?";
+  }
+
+  // Neither converted: the factors of 100 and 1000 leave it out by 10.
+  if (involvesCm && involvesMs && outBy(10)) {
+    return "Did you convert cm to m and ms to s?";
+  }
+
+  return null;
+}
+
+// "That's a unit of time, but the question asks for a distance."
+function describeWrongUnit(unitText, question) {
+  const unitQuantity = Object.keys(UNIT_FACTORS).find(
+    (quantity) => UNIT_FACTORS[quantity][unitText] !== undefined
+  );
+  if (!unitQuantity || unitQuantity === question.quantity) return "Check the unit.";
+  return `That's a unit of ${unitQuantity}, but the question asks for a ${question.quantity}.`;
+}
+
 function parseAnswerQuantity(raw, question, unitRequired) {
   const normalized = String(raw ?? "")
     .trim()
@@ -178,21 +238,15 @@ function parseAnswerQuantity(raw, question, unitRequired) {
   const factors = UNIT_FACTORS[question.quantity];
   const canonicalFactor = factors[normalizeUnit(question.unit)];
 
-  if (unitRequired && !unitText) {
-    // Would this number be right in any unit of the right kind (e.g. 4250 for
-    // 4.25 m in mm, or 0.03 for 30 ms in s)? If so, nudge them to add the unit.
-    const answerInBase = question.answer * canonicalFactor;
-    const toleranceInBase = question.tolerance * canonicalFactor;
-    const couldBeRight = [...new Set(Object.values(factors))].some(
-      (factor) => Math.abs(value * factor - answerInBase) <= toleranceInBase * (1 + 1e-9)
-    );
-    return { error: "missing-unit", couldBeRight };
-  }
+  if (unitRequired && !unitText) return { error: "missing-unit" };
 
   const enteredFactor = unitText ? factors[unitText] : canonicalFactor;
-  if (enteredFactor === undefined) return { error: "wrong-unit" };
+  if (enteredFactor === undefined) {
+    return { error: "wrong-unit", message: describeWrongUnit(unitText, question) };
+  }
 
   return {
+    enteredValue: value,
     valueInBaseUnits: value * enteredFactor,
     answerInBaseUnits: question.answer * canonicalFactor,
     toleranceInBaseUnits: question.tolerance * canonicalFactor,
@@ -251,6 +305,7 @@ function createRewardPlan() {
 let SESSION_CACHE = null;
 
 const HELP_DELAY_MS = 10000;
+const WRONG_NUMBER_FEEDBACK = "The unit is right, but the number is wrong.";
 
 const KEYPAD_UNIT_KEYS = ["m", "s", "/"];
 // Number keys on the left, unit keys down the right-hand column.
@@ -885,6 +940,9 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
     []
   );
 
+  // The last "wrong" message for each question, so revisiting it repeats it.
+  const wrongFeedbackRef = useRef([]);
+
   const showQuestionFeedback = useCallback(
     (index) => {
       if (!checked[index]) {
@@ -901,7 +959,7 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
       } else {
         setFeedback({
           type: "wrong",
-          text: "Change your answer and try again.",
+          text: wrongFeedbackRef.current[index] || WRONG_NUMBER_FEEDBACK,
         });
       }
     },
@@ -1087,16 +1145,10 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
 
     if (parsedAnswer.error) {
       const errorText =
-        parsedAnswer.error === "missing-unit" && parsedAnswer.couldBeRight
-          ? answerEntryMode === "write"
-            ? "That number could be right. Write its unit in the unit box."
-            : "That number could be right. What's the unit? Add it to your answer."
-          : parsedAnswer.error === "missing-unit"
-          ? answerEntryMode === "write"
-            ? "Write a unit in the unit box before checking."
-            : "Include a unit in your answer before checking."
+        parsedAnswer.error === "missing-unit"
+          ? "What's the unit?"
           : parsedAnswer.error === "wrong-unit"
-            ? "Check the unit."
+            ? parsedAnswer.message
             : answerEntryMode === "write"
               ? "I couldn't read a valid answer yet. Rewrite either box, or use Type answer."
               : "Enter a valid number and unit first.";
@@ -1131,16 +1183,20 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
       return next;
     });
 
+    // Reaching a wrong answer here means the unit was a valid one for this
+    // quantity, so either point at a likely slip or say the number is wrong.
+    const wrongText = isCorrect
+      ? ""
+      : diagnoseWrongAnswer(currentQuestion, parsedAnswer) || WRONG_NUMBER_FEEDBACK;
+    wrongFeedbackRef.current[currentIndex] = wrongText;
+
     setFeedback(
       isCorrect
         ? {
             type: "correct",
             text: `Correct — ${currentQuestion.answer} ${currentQuestion.unit}.`,
           }
-        : {
-            type: "wrong",
-            text: "Change your answer and try again.",
-          }
+        : { type: "wrong", text: wrongText }
     );
 
     if (!isCorrect) {
