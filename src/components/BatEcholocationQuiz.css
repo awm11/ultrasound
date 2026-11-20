@@ -347,10 +347,19 @@
 
 .batQuiz__keypad {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  width: 78%;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: 88%;
   gap: 4px;
   margin: 8px auto 0;
+}
+
+.batQuiz .batQuiz__keypadKey.is-unit {
+  border-color: #0e7490;
+  background: #0c3a4d;
+}
+
+.batQuiz .batQuiz__keypadKey.is-action {
+  grid-column: span 2;
 }
 
 .batQuiz__keypadKey {

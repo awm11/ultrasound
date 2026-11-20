@@ -106,7 +106,8 @@ const WORKING_HELP = [
   { distance: "0.68", time: "time" },
 ];
 
-const UNIT_REQUIRED_FROM_INDEX = 2;
+// Every question asks for a unit: nothing is filled in for the student.
+const UNIT_REQUIRED_FROM_INDEX = 0;
 
 const RECOGNISABLE_UNITS = ["m", "cm", "mm", "km", "s", "ms", "m/s"];
 
@@ -250,6 +251,10 @@ function createRewardPlan() {
 let SESSION_CACHE = null;
 
 const HELP_DELAY_MS = 10000;
+
+const KEYPAD_UNIT_KEYS = ["m", "s", "/"];
+// Number keys on the left, unit keys down the right-hand column.
+const KEYPAD_KEYS = ["1", "2", "3", "m", "4", "5", "6", "s", "7", "8", "9", "/", ".", "0", "backspace"];
 
 function getSession() {
   if (!SESSION_CACHE) {
@@ -977,9 +982,11 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
 
   const handleKeypadPress = (key) => {
     const current = answers[currentIndex].replace(",", ".");
+    // Keep the number and the unit apart so keys go to the right part.
+    const [, numberPart = "", unitPart = ""] = current.match(/^([\d.]*)\s*(.*)$/) || [];
 
     if (key === "backspace") {
-      setCurrentAnswerValue(current.slice(0, -1));
+      setCurrentAnswerValue(current.slice(0, -1).trimEnd());
       return;
     }
 
@@ -988,18 +995,27 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
       return;
     }
 
+    if (KEYPAD_UNIT_KEYS.includes(key)) {
+      if (!numberPart || unitPart.length >= 3) return;
+      setCurrentAnswerValue(unitPart ? `${current}${key}` : `${numberPart} ${key}`);
+      return;
+    }
+
+    // Digits and the decimal point only go into the number, before any unit.
+    if (unitPart) return;
+
     if (key === ".") {
-      if (current.includes(".")) return;
-      setCurrentAnswerValue(current ? `${current}.` : "0.");
+      if (numberPart.includes(".")) return;
+      setCurrentAnswerValue(numberPart ? `${numberPart}.` : "0.");
       return;
     }
 
     if (!/^\d$/.test(key)) return;
 
-    const digits = current.replace(/\D/g, "");
+    const digits = numberPart.replace(/\D/g, "");
     if (digits.length >= 5) return;
 
-    setCurrentAnswerValue(current === "0" ? key : `${current}${key}`);
+    setCurrentAnswerValue(numberPart === "0" ? key : `${numberPart}${key}`);
   };
 
   const handleWriteAnswer = () => {
@@ -2160,7 +2176,9 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
                           id="bat-quiz-answer"
                           className="batQuiz__answerInput"
                           type="text"
-                          inputMode="text"
+                          // The on-screen keypad has every key needed, so stop tablets
+                          // opening their own keyboard. Physical keyboards still type.
+                          inputMode="none"
                           enterKeyHint="done"
                           autoComplete="off"
                           autoCapitalize="off"
@@ -2190,21 +2208,33 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
                       </div>
                     ) : null}
 
-                    {answerEntryMode === "type" && !answerUnitRequired ? (
-                      <div className="batQuiz__keypad" aria-label="Number keypad">
-                        {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "backspace"].map(
-                          (key) => (
-                            <button
-                              key={key}
-                              type="button"
-                              className={`batQuiz__keypadKey ${key === "backspace" ? "is-action" : ""}`}
-                              aria-label={key === "backspace" ? "Backspace" : key === "." ? "Decimal point" : key}
-                              onClick={() => handleKeypadPress(key)}
-                            >
-                              {key === "backspace" ? "⌫" : key}
-                            </button>
-                          )
-                        )}
+                    {answerEntryMode === "type" ? (
+                      <div className="batQuiz__keypad" aria-label="Number and unit keypad">
+                        {KEYPAD_KEYS.map((key) => (
+                          <button
+                            key={key}
+                            type="button"
+                            className={`batQuiz__keypadKey ${
+                              key === "backspace" ? "is-action" : ""
+                            } ${KEYPAD_UNIT_KEYS.includes(key) ? "is-unit" : ""}`}
+                            aria-label={
+                              key === "backspace"
+                                ? "Backspace"
+                                : key === "."
+                                  ? "Decimal point"
+                                  : key === "/"
+                                    ? "Slash, for per"
+                                    : key === "m"
+                                      ? "m, metres or milli"
+                                      : key === "s"
+                                        ? "s, seconds"
+                                        : key
+                            }
+                            onClick={() => handleKeypadPress(key)}
+                          >
+                            {key === "backspace" ? "⌫" : key}
+                          </button>
+                        ))}
                       </div>
                     ) : null}
 
