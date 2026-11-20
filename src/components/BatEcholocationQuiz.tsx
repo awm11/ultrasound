@@ -1779,11 +1779,78 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
     }
   };
 
+  // Two fingers on the working area scroll the quiz instead of drawing.
+  const touchPointsRef = useRef(new Map());
+  const touchScrollRef = useRef(null);
+  const activeStrokeInfoRef = useRef(null);
+
+  const getScrollContainer = (element) => {
+    for (let node = element?.parentElement; node; node = node.parentElement) {
+      const { overflowY } = window.getComputedStyle(node);
+      if (/(auto|scroll)/.test(overflowY) && node.scrollHeight > node.clientHeight) {
+        return node;
+      }
+    }
+    return document.scrollingElement || document.documentElement;
+  };
+
+  const getTouchMidpoint = () => {
+    const points = [...touchPointsRef.current.values()].slice(0, 2);
+    return {
+      x: (points[0].x + points[1].x) / 2,
+      y: (points[0].y + points[1].y) / 2,
+    };
+  };
+
+  const startTouchScroll = () => {
+    const canvas = canvasRef.current;
+    const info = activeStrokeInfoRef.current;
+    const stroke = activeStrokeRef.current;
+
+    // The first finger has usually left a short mark by the time the second
+    // lands: remove it, unless it's a deliberate stroke drawn for a while.
+    if (stroke && info?.pointerType === "touch") {
+      const strokes = drawingsRef.current[currentIndexRef.current];
+      const index = strokes.indexOf(stroke);
+      if (index !== -1 && performance.now() - info.startedAt < 300) {
+        strokes.splice(index, 1);
+        redraw();
+      }
+      // Keep this finger's pointer capture: once the quiz scrolls it may no
+      // longer be over the canvas, and its moves still need to reach us.
+      drawingRef.current = false;
+      activeStrokeRef.current = null;
+      activeStrokeInfoRef.current = null;
+      scheduleSave();
+    }
+
+    touchScrollRef.current = {
+      container: getScrollContainer(canvas),
+      last: getTouchMidpoint(),
+    };
+  };
+
   const handlePointerDown = (event) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    if (event.pointerType === "touch") {
+      touchPointsRef.current.set(event.pointerId, {
+        x: event.clientX,
+        y: event.clientY,
+      });
+      if (touchScrollRef.current || touchPointsRef.current.size >= 2) {
+        canvas.setPointerCapture(event.pointerId);
+        if (!touchScrollRef.current) startTouchScroll();
+        else if (touchPointsRef.current.size >= 2) {
+          // A finger rejoined mid-gesture: measure from here to avoid a jump.
+          touchScrollRef.current.last = getTouchMidpoint();
+        }
+        return;
+      }
+    }
 
     drawingRef.current = true;
     canvas.setPointerCapture(event.pointerId);
@@ -1794,12 +1861,37 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
     };
 
     activeStrokeRef.current = stroke;
+    activeStrokeInfoRef.current = {
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      startedAt: performance.now(),
+    };
     drawingsRef.current[currentIndexRef.current].push(stroke);
     redraw();
   };
 
   const handlePointerMove = (event) => {
+    if (event.pointerType === "touch" && touchPointsRef.current.has(event.pointerId)) {
+      touchPointsRef.current.set(event.pointerId, {
+        x: event.clientX,
+        y: event.clientY,
+      });
+      const gesture = touchScrollRef.current;
+      if (gesture) {
+        if (touchPointsRef.current.size >= 2) {
+          const midpoint = getTouchMidpoint();
+          gesture.container.scrollBy(
+            gesture.last.x - midpoint.x,
+            gesture.last.y - midpoint.y
+          );
+          gesture.last = midpoint;
+        }
+        return;
+      }
+    }
+
     if (!drawingRef.current || !activeStrokeRef.current) return;
+    if (activeStrokeInfoRef.current?.pointerId !== event.pointerId) return;
     const points = getCoalescedPointerSamples(event).map(getCanvasPoint);
     activeStrokeRef.current.points.push(...points);
     redraw();
@@ -1807,13 +1899,38 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
 
   const handlePointerEnd = (event) => {
     const canvas = canvasRef.current;
-    drawingRef.current = false;
-    activeStrokeRef.current = null;
-
     if (canvas?.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
     }
+
+    if (event.pointerType === "touch") {
+      touchPointsRef.current.delete(event.pointerId);
+      if (touchScrollRef.current) {
+        // Stay in scroll mode until every finger has lifted, so the last
+        // finger off the screen doesn't start drawing.
+        if (touchPointsRef.current.size === 0) touchScrollRef.current = null;
+        else if (touchPointsRef.current.size >= 2) {
+          touchScrollRef.current.last = getTouchMidpoint();
+        }
+        return;
+      }
+    }
+
+    if (activeStrokeInfoRef.current?.pointerId !== event.pointerId) return;
+    drawingRef.current = false;
+    activeStrokeRef.current = null;
+    activeStrokeInfoRef.current = null;
     scheduleSave();
+  };
+
+  // Safety net: if the browser takes a finger away without a pointerup,
+  // forget it so a stale finger can't leave the canvas stuck in scroll mode.
+  const handleLostPointerCapture = (event) => {
+    if (event.pointerType !== "touch" || !touchPointsRef.current.has(event.pointerId)) return;
+    touchPointsRef.current.delete(event.pointerId);
+    if (touchScrollRef.current && touchPointsRef.current.size === 0) {
+      touchScrollRef.current = null;
+    }
   };
 
   const clearWorking = () => {
@@ -2201,6 +2318,7 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
                       onPointerMove={handlePointerMove}
                       onPointerUp={handlePointerEnd}
                       onPointerCancel={handlePointerEnd}
+                      onLostPointerCapture={handleLostPointerCapture}
                     />
                   </div>
                 </section>
