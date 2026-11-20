@@ -186,13 +186,24 @@ function diagnoseWrongAnswer(question, parsed) {
     }
   }
 
+  const outBy = (factor) =>
+    near(valueInBase, answerInBase * factor) || near(valueInBase, answerInBase / factor);
+
   // Out by a factor of 1000 on a question that involves milliseconds.
   const involvesMs = /\d\s*ms\b/.test(question.text) || question.unit === "ms";
-  if (
-    involvesMs &&
-    (near(valueInBase, answerInBase * 1000) || near(valueInBase, answerInBase / 1000))
-  ) {
+  if (involvesMs && outBy(1000)) {
     return "Did you convert between ms and s?";
+  }
+
+  // Out by a factor of 100 on a question that gives a length in cm.
+  const involvesCm = /\d\s*cm\b/.test(question.text);
+  if (involvesCm && outBy(100)) {
+    return "Did you convert cm to m?";
+  }
+
+  // Neither converted: the factors of 100 and 1000 leave it out by 10.
+  if (involvesCm && involvesMs && outBy(10)) {
+    return "Did you convert cm to m and ms to s?";
   }
 
   return null;
