@@ -2176,7 +2176,9 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
                           id="bat-quiz-answer"
                           className="batQuiz__answerInput"
                           type="text"
-                          inputMode="text"
+                          // The on-screen keypad has every key needed, so stop tablets
+                          // opening their own keyboard. Physical keyboards still type.
+                          inputMode="none"
                           enterKeyHint="done"
                           autoComplete="off"
                           autoCapitalize="off"
