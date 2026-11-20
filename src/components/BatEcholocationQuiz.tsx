@@ -37,7 +37,7 @@ const BAT_IMAGES = [bat1, bat2, bat3, bat4, bat5, bat6, bat7, bat8, bat9];
 
 const QUESTIONS = [
   {
-    text: "A bat sends an ultrasonic pulse towards a moth. The echo returns 20 ms later. How far away is the moth?",
+    text: "A bat sends an ultrasonic pulse towards a moth. The echo returns 0.020 seconds later. How far away is the moth?",
     answer: 3.4,
     unit: "m",
     quantity: "distance",
