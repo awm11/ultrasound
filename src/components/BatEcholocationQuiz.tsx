@@ -177,16 +177,7 @@ function parseAnswerQuantity(raw, question, unitRequired) {
   const factors = UNIT_FACTORS[question.quantity];
   const canonicalFactor = factors[normalizeUnit(question.unit)];
 
-  if (unitRequired && !unitText) {
-    // Would this number be right in any unit of the right kind (e.g. 4250 for
-    // 4.25 m in mm, or 0.03 for 30 ms in s)? If so, nudge them to add the unit.
-    const answerInBase = question.answer * canonicalFactor;
-    const toleranceInBase = question.tolerance * canonicalFactor;
-    const couldBeRight = [...new Set(Object.values(factors))].some(
-      (factor) => Math.abs(value * factor - answerInBase) <= toleranceInBase * (1 + 1e-9)
-    );
-    return { error: "missing-unit", couldBeRight };
-  }
+  if (unitRequired && !unitText) return { error: "missing-unit" };
 
   const enteredFactor = unitText ? factors[unitText] : canonicalFactor;
   if (enteredFactor === undefined) return { error: "wrong-unit" };
@@ -250,6 +241,7 @@ function createRewardPlan() {
 let SESSION_CACHE = null;
 
 const HELP_DELAY_MS = 10000;
+const WRONG_NUMBER_FEEDBACK = "The unit is right, but the number is wrong.";
 
 function getSession() {
   if (!SESSION_CACHE) {
@@ -896,7 +888,7 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
       } else {
         setFeedback({
           type: "wrong",
-          text: "Change your answer and try again.",
+          text: WRONG_NUMBER_FEEDBACK,
         });
       }
     },
@@ -1071,14 +1063,8 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
 
     if (parsedAnswer.error) {
       const errorText =
-        parsedAnswer.error === "missing-unit" && parsedAnswer.couldBeRight
-          ? answerEntryMode === "write"
-            ? "That number could be right. Write its unit in the unit box."
-            : "That number could be right. What's the unit? Add it to your answer."
-          : parsedAnswer.error === "missing-unit"
-          ? answerEntryMode === "write"
-            ? "Write a unit in the unit box before checking."
-            : "Include a unit in your answer before checking."
+        parsedAnswer.error === "missing-unit"
+          ? "What's the unit?"
           : parsedAnswer.error === "wrong-unit"
             ? "Check the unit."
             : answerEntryMode === "write"
@@ -1123,7 +1109,8 @@ function BatEcholocationQuizSession({ onFinish, onRewardChange, onRestart }) {
           }
         : {
             type: "wrong",
-            text: "Change your answer and try again.",
+            // Reaching here means the unit was a valid one for this quantity.
+            text: WRONG_NUMBER_FEEDBACK,
           }
     );
 
